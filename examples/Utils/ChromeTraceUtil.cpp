@@ -7,6 +7,23 @@
 #include <stdio.h>
 #include <climits>
 
+#ifndef __STDC_FORMAT_MACROS
+#define __STDC_FORMAT_MACROS
+#endif  //__STDC_FORMAT_MACROS
+
+//see http://stackoverflow.com/questions/18107426/printf-format-for-unsigned-int64-on-windows
+#ifndef _WIN32
+#include <inttypes.h>
+#endif
+
+// ChromeTraceUtil.cpp is compiled into several libraries (e.g. BulletRobotics and
+// BulletExampleBrowserLib) that can be loaded into the same process, such as pybullet
+// built with CMake and BUILD_SHARED_LIBS=ON. Keep everything except the b3ChromeUtils*
+// API from ChromeTraceUtil.h internal: with ELF symbol interposition, the static
+// constructors and destructors of every copy would otherwise run on the same exported
+// objects (clk, gTimings), deleting their memory twice at exit.
+namespace
+{
 struct btTiming
 {
 	const char* m_name;
@@ -16,14 +33,6 @@ struct btTiming
 };
 
 FILE* gTimingFile = 0;
-#ifndef __STDC_FORMAT_MACROS
-#define __STDC_FORMAT_MACROS
-#endif  //__STDC_FORMAT_MACROS
-
-//see http://stackoverflow.com/questions/18107426/printf-format-for-unsigned-int64-on-windows
-#ifndef _WIN32
-#include <inttypes.h>
-#endif
 
 #define BT_TIMING_CAPACITY 16 * 65536
 static bool m_firstTiming = true;
@@ -218,6 +227,7 @@ void MyLeaveProfileZoneFunc()
 	gTimings[threadId].addTiming(name, threadId, startTime, endTime);
 
 }
+}  // namespace
 
 void b3ChromeUtilsStartTimings()
 {
