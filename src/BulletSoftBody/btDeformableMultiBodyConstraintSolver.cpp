@@ -15,6 +15,8 @@
 
 #include "btDeformableMultiBodyConstraintSolver.h"
 #include "BulletReducedDeformableBody/btReducedDeformableBodySolver.h"
+#include "BulletDynamics/Featherstone/btMultiBody.h"
+#include "LinearMath/btHashMap.h"
 #include <iostream>
 
 // override the iterations method to include deformable/multibody contact
@@ -27,16 +29,23 @@ btScalar btDeformableMultiBodyConstraintSolver::solveDeformableGroupIterations(b
 		///this is a special step to resolve penetrations (just for contacts)
 		solveGroupCacheFriendlySplitImpulseIterations(bodies, numBodies, deformableBodies, numDeformableBodies, manifoldPtr, numManifolds, constraints, numConstraints, infoGlobal, debugDrawer);
 
+		// find the multibodies that are handled by both the multibody constraint rows and the deformable contacts
+		setupMultiBodySync();
+
 		int maxIterations = m_maxOverrideNumSolverIterations > infoGlobal.m_numIterations ? m_maxOverrideNumSolverIterations : infoGlobal.m_numIterations;
 		for (int iteration = 0; iteration < maxIterations; iteration++)
 		{
 			// rigid bodies are solved using solver body velocity, but rigid/deformable contact directly uses the velocity of the actual rigid body. So we have to do the following: Solve one iteration of the rigid/rigid contact, get the updated velocity in the solver body and update the velocity of the underlying rigid body. Then solve the rigid/deformable contact. Finally, grab the (once again) updated rigid velocity and update the velocity of the wrapping solver body
+			// Multibodies need the same: the multibody constraint rows (joint motors, joint limits, multibody contacts) read m_data.m_deltaVelocities, while the rigid/deformable contacts read and write btMultiBody::m_deltaV.
 
 			// solve rigid/rigid in solver body
 			m_leastSquaresResidual = solveSingleIteration(iteration, bodies, numBodies, manifoldPtr, numManifolds, constraints, numConstraints, infoGlobal, debugDrawer);
 			// solver body velocity -> rigid body velocity
 			solverBodyWriteBack(infoGlobal);
+			backupMultiBodyDeltaV();
 			btScalar deformableResidual = m_deformableSolver->solveContactConstraints(deformableBodies, numDeformableBodies, infoGlobal);
+			// multibody delta velocity -> multibody solver delta velocity
+			writeDeformableImpulsesToMultiBodySolver();
 			// update rigid body velocity in rigid/deformable contact
 			m_leastSquaresResidual = btMax(m_leastSquaresResidual, deformableResidual);
 			// solver body velocity <- rigid body velocity
@@ -66,8 +75,79 @@ btScalar btDeformableMultiBodyConstraintSolver::solveDeformableGroupIterations(b
 				break;
 			}
 		}
+		m_syncMultiBodies.resize(0);
 	}
 	return 0.f;
+}
+
+void btDeformableMultiBodyConstraintSolver::setupMultiBodySync()
+{
+	m_syncMultiBodies.resize(0);
+	const btMultiBodyConstraintArray* rowArrays[] = {&m_multiBodyNonContactConstraints,
+													 &m_multiBodyNormalContactConstraints,
+													 &m_multiBodyFrictionContactConstraints,
+													 &m_multiBodyTorsionalFrictionContactConstraints,
+													 &m_multiBodySpinningFrictionContactConstraints};
+	const int numRowArrays = sizeof(rowArrays) / sizeof(rowArrays[0]);
+	btHashMap<btHashInt, int> added;  // offset in m_data.m_deltaVelocities -> index in m_syncMultiBodies
+	int numValues = 0;
+	for (int a = 0; a < numRowArrays; ++a)
+	{
+		const btMultiBodyConstraintArray& rows = *rowArrays[a];
+		for (int i = 0; i < rows.size(); ++i)
+		{
+			const btMultiBodySolverConstraint& row = rows[i];
+			for (int side = 0; side < 2; ++side)
+			{
+				btMultiBody* multiBody = side == 0 ? row.m_multiBodyA : row.m_multiBodyB;
+				const int deltaVelIndex = side == 0 ? row.m_deltaVelAindex : row.m_deltaVelBindex;
+				if (!multiBody || deltaVelIndex < 0 || added.find(btHashInt(deltaVelIndex)))
+				{
+					continue;
+				}
+				btMultiBodySyncData sync;
+				sync.m_multiBody = multiBody;
+				sync.m_deltaVelIndex = deltaVelIndex;
+				sync.m_offset = numValues;
+				sync.m_numDofs = multiBody->getNumDofs() + 6;
+				btAssert(deltaVelIndex + sync.m_numDofs <= m_data.m_deltaVelocities.size());
+				added.insert(btHashInt(deltaVelIndex), m_syncMultiBodies.size());
+				m_syncMultiBodies.push_back(sync);
+				numValues += sync.m_numDofs;
+			}
+		}
+	}
+	m_syncDeltaV.resize(numValues);
+}
+
+void btDeformableMultiBodyConstraintSolver::backupMultiBodyDeltaV()
+{
+	for (int k = 0; k < m_syncMultiBodies.size(); ++k)
+	{
+		const btMultiBodySyncData& sync = m_syncMultiBodies[k];
+		const btScalar* deltaV = sync.m_multiBody->getDeltaVelocityVector();
+		btScalar* backup = &m_syncDeltaV[sync.m_offset];
+		for (int i = 0; i < sync.m_numDofs; ++i)
+		{
+			backup[i] = deltaV[i];
+		}
+	}
+}
+
+void btDeformableMultiBodyConstraintSolver::writeDeformableImpulsesToMultiBodySolver()
+{
+	for (int k = 0; k < m_syncMultiBodies.size(); ++k)
+	{
+		const btMultiBodySyncData& sync = m_syncMultiBodies[k];
+		const btScalar* deltaV = sync.m_multiBody->getDeltaVelocityVector();
+		const btScalar* backup = &m_syncDeltaV[sync.m_offset];
+		btScalar* solverDeltaV = &m_data.m_deltaVelocities[sync.m_deltaVelIndex];
+		for (int i = 0; i < sync.m_numDofs; ++i)
+		{
+			// velocity change caused by the deformable contacts in this iteration
+			solverDeltaV[i] += deltaV[i] - backup[i];
+		}
+	}
 }
 
 void btDeformableMultiBodyConstraintSolver::solveDeformableBodyGroup(btCollisionObject** bodies, int numBodies, btCollisionObject** deformableBodies, int numDeformableBodies, btPersistentManifold** manifold, int numManifolds, btTypedConstraint** constraints, int numConstraints, btMultiBodyConstraint** multiBodyConstraints, int numMultiBodyConstraints, const btContactSolverInfo& info, btIDebugDraw* debugDrawer, btDispatcher* dispatcher)

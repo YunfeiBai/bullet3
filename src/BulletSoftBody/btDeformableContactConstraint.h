@@ -145,12 +145,16 @@ public:
 	btVector3 m_total_tangent_dv;
 	btScalar m_penetration;
 	btScalar m_total_split_impulse;
+	// accumulated correction of the normal relative velocity, in velocity units. It is clamped to be
+	// non-negative over the iterations (a contact can only push), but can decrease again if an earlier
+	// iteration pushed too much.
+	btScalar m_total_normal_velocity_correction;
 	bool m_binding;
 	const btSoftBody::DeformableRigidContact* m_contact;
 
 	btDeformableRigidContactConstraint(const btSoftBody::DeformableRigidContact& c, const btContactSolverInfo& infoGlobal);
 	btDeformableRigidContactConstraint(const btDeformableRigidContactConstraint& other);
-	btDeformableRigidContactConstraint() : m_binding(false) {}
+	btDeformableRigidContactConstraint() : m_total_normal_velocity_correction(0), m_binding(false) {}
 	virtual ~btDeformableRigidContactConstraint()
 	{
 	}

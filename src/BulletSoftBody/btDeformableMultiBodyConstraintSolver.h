@@ -46,6 +46,33 @@ protected:
 	// let each deformable body knows which solver body is in constact
 	void pairDeformableAndSolverBody(btCollisionObject** bodies, int numBodies, int numDeformableBodies, const btContactSolverInfo& infoGlobal);
 
+	// The multibody constraint rows (joint motors, joint limits, multibody contacts...) compute their
+	// impulses from the velocity change accumulated in m_data.m_deltaVelocities, while the deformable
+	// contacts read and write btMultiBody::m_deltaV. The multibody rows also apply their impulses to
+	// btMultiBody::m_deltaV (DIRECTLY_UPDATE_VELOCITY_DURING_SOLVER_ITERATIONS is defined in
+	// btMultiBodyConstraintSolver.h), so the deformable contacts see them, but the multibody rows would
+	// not see the impulses of the deformable contacts: a joint motor that pushes a gripper finger
+	// against a deformable object would keep applying the impulse it needs without the object, and
+	// joint limits would not hold against deformable contacts. So after each iteration, the velocity
+	// change caused by the deformable contacts is added to m_data.m_deltaVelocities, analogous to
+	// solverBodyWriteBack() and writeToSolverBody() for rigid bodies.
+	struct btMultiBodySyncData
+	{
+		btMultiBody* m_multiBody;
+		int m_deltaVelIndex;  // offset of the multibody in m_data.m_deltaVelocities
+		int m_offset;         // offset of the multibody in m_syncDeltaV
+		int m_numDofs;        // number of velocity dofs, including the 6 base dofs
+	};
+	btAlignedObjectArray<btMultiBodySyncData> m_syncMultiBodies;
+	btAlignedObjectArray<btScalar> m_syncDeltaV;  // btMultiBody::m_deltaV before the deformable contact solve
+
+	// find the multibodies that are handled by the multibody constraint rows
+	void setupMultiBodySync();
+	// remember btMultiBody::m_deltaV before the deformable contact solve
+	void backupMultiBodyDeltaV();
+	// add the velocity change caused by the deformable contacts to m_data.m_deltaVelocities
+	void writeDeformableImpulsesToMultiBodySolver();
+
 	virtual void solveGroupCacheFriendlySplitImpulseIterations(btCollisionObject * *bodies, int numBodies, btCollisionObject** deformableBodies, int numDeformableBodies, btPersistentManifold** manifoldPtr, int numManifolds, btTypedConstraint** constraints, int numConstraints, const btContactSolverInfo& infoGlobal, btIDebugDraw* debugDrawer);
 
 	virtual btScalar solveDeformableGroupIterations(btCollisionObject * *bodies, int numBodies, btCollisionObject** deformableBodies, int numDeformableBodies, btPersistentManifold** manifoldPtr, int numManifolds, btTypedConstraint** constraints, int numConstraints, const btContactSolverInfo& infoGlobal, btIDebugDraw* debugDrawer);

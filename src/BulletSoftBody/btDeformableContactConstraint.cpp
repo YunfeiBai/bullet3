@@ -140,11 +140,12 @@ btDeformableRigidContactConstraint::btDeformableRigidContactConstraint(const btS
 	// The magnitude of penetration is the depth of penetration.
 	m_penetration = c.m_cti.m_offset;
 	m_total_split_impulse = 0;
+	m_total_normal_velocity_correction = 0;
 	m_binding = false;
 }
 
 btDeformableRigidContactConstraint::btDeformableRigidContactConstraint(const btDeformableRigidContactConstraint& other)
-	: m_contact(other.m_contact), btDeformableContactConstraint(other), m_penetration(other.m_penetration), m_total_split_impulse(other.m_total_split_impulse), m_binding(other.m_binding)
+	: m_contact(other.m_contact), btDeformableContactConstraint(other), m_penetration(other.m_penetration), m_total_split_impulse(other.m_total_split_impulse), m_total_normal_velocity_correction(other.m_total_normal_velocity_correction), m_binding(other.m_binding)
 {
 	m_total_normal_dv = other.m_total_normal_dv;
 	m_total_tangent_dv = other.m_total_tangent_dv;
@@ -259,7 +260,9 @@ btScalar btDeformableRigidContactConstraint::solveConstraint(const btContactSolv
 	btVector3 va = getVa();
 	btVector3 vb = getVb();
 	btVector3 vr = vb - va;
-	btScalar dn = btDot(vr, cti.m_normal) + m_total_normal_dv.dot(cti.m_normal) * infoGlobal.m_deformable_cfm;
+	// normal relative velocity, including the velocity that closes the gap of a speculative contact
+	// and the Baumgarte term when split impulse is off
+	btScalar dn = btDot(vr, cti.m_normal);
 	if (m_penetration > 0)
 	{
 		dn += m_penetration / infoGlobal.m_timeStep;
@@ -268,31 +271,50 @@ btScalar btDeformableRigidContactConstraint::solveConstraint(const btContactSolv
 	{
 		dn += m_penetration * infoGlobal.m_deformable_erp / infoGlobal.m_timeStep;
 	}
-	// dn is the normal component of velocity difference. Approximates the residual. // todo xuchenhan@: this prob needs to be scaled by dt
-	btVector3 impulse = m_contact->m_c0 * (vr + m_total_normal_dv * infoGlobal.m_deformable_cfm + ((m_penetration > 0) ? m_penetration / infoGlobal.m_timeStep * cti.m_normal : btVector3(0, 0, 0)));
-	if (!infoGlobal.m_splitImpulse)
+	// the constraint force mixing term softens the push
+	const btScalar dn_cfm = dn + m_total_normal_dv.dot(cti.m_normal) * infoGlobal.m_deformable_cfm;
+	// impulse that removes the tangential relative velocity (static friction)
+	btVector3 vr_tangent = vr + m_total_normal_dv * infoGlobal.m_deformable_cfm;
+	vr_tangent -= cti.m_normal * btDot(vr_tangent, cti.m_normal);
+	btVector3 impulse_tangent = m_contact->m_c0 * vr_tangent;
+
+	// Projected Gauss-Seidel on the accumulated normal velocity correction: the contact pushes when the
+	// bodies approach each other (as before), and it gives back impulse that was applied in an earlier
+	// iteration when the bodies are separating, e.g. because neighboring contacts or joint motors changed
+	// the velocities in the meantime. The accumulated correction stays non-negative: a contact can only
+	// push. Never giving back impulse makes the contacts overshoot, which shows up as jitter of deformable
+	// objects that rest on or are held by rigid bodies.
+	const btScalar old_correction = m_total_normal_velocity_correction;
+	if (dn_cfm < 0)
 	{
-		impulse += m_contact->m_c0 * (m_penetration * infoGlobal.m_deformable_erp / infoGlobal.m_timeStep * cti.m_normal);
+		m_total_normal_velocity_correction = old_correction - dn_cfm;
 	}
-	btVector3 impulse_normal = m_contact->m_c0 * (cti.m_normal * dn);
-	btVector3 impulse_tangent = impulse - impulse_normal;
-	if (dn > 0)
+	else if (dn > 0)
 	{
+		m_total_normal_velocity_correction = btMax(old_correction - dn, btScalar(0));
+	}
+	const btScalar correction = m_total_normal_velocity_correction - old_correction;
+	if (m_total_normal_velocity_correction == btScalar(0) && old_correction == btScalar(0))
+	{
+		// separating and no impulse to give back
 		return 0;
 	}
-	m_binding = true;
-	btScalar residualSquare = dn * dn;
+	// impulse that changes the normal relative velocity by 'correction'
+	btVector3 impulse_normal = m_contact->m_c0 * (cti.m_normal * (-correction));
+	m_binding = m_total_normal_velocity_correction > 0;
+	btScalar residualSquare = correction * correction;
 	btVector3 old_total_tangent_dv = m_total_tangent_dv;
 	// m_c5 is the inverse mass of the deformable node/face
 	m_total_normal_dv -= m_contact->m_c5 * impulse_normal;
 	m_total_tangent_dv -= m_contact->m_c5 * impulse_tangent;
 
-	if (m_total_normal_dv.dot(cti.m_normal) < 0)
+	if (!m_binding)
 	{
-		// separating in the normal direction
-		m_binding = false;
+		// separating in the normal direction: no normal impulse is left, so remove the friction impulse as well
 		m_static = false;
-		impulse_tangent.setZero();
+		m_total_normal_dv.setZero();
+		m_total_tangent_dv.setZero();
+		impulse_tangent = m_contact->m_c5.inverse() * old_total_tangent_dv;
 	}
 	else
 	{
@@ -318,7 +340,7 @@ btScalar btDeformableRigidContactConstraint::solveConstraint(const btContactSolv
 			m_static = true;
 		}
 	}
-	impulse = impulse_normal + impulse_tangent;
+	const btVector3 impulse = impulse_normal + impulse_tangent;
 	// apply impulse to deformable nodes involved and change their velocities
 	applyImpulse(impulse);
 	// apply impulse to the rigid/multibodies involved and change their velocities
