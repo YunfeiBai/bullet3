@@ -1031,6 +1031,46 @@ void btSoftBody::setVolumeDensity(btScalar density)
 }
 
 //
+void btSoftBody::setTotalMassFromTetras(btScalar mass)
+{
+	// Lumped mass: node mass = density * sum over its tetrahedra of |rest volume| / 4.
+	btAlignedObjectArray<btScalar> nodeVolumes;
+	nodeVolumes.resize(m_nodes.size(), 0);
+	btScalar minNodeVolume = 0;
+	int i;
+
+	for (i = 0; i < m_tetras.size(); ++i)
+	{
+		const Tetra& t = m_tetras[i];
+		// m_rv is the triple product, i.e. six times the signed volume
+		const btScalar quarterVolume = btFabs(t.m_rv) / 24;
+		for (int j = 0; j < 4; ++j)
+		{
+			nodeVolumes[int(t.m_n[j] - &m_nodes[0])] += quarterVolume;
+		}
+	}
+	for (i = 0; i < m_nodes.size(); ++i)
+	{
+		if (nodeVolumes[i] > 0 && (minNodeVolume == 0 || nodeVolumes[i] < minNodeVolume))
+		{
+			minNodeVolume = nodeVolumes[i];
+		}
+	}
+	if (minNodeVolume == 0)
+	{
+		// no tetrahedron with a volume
+		setTotalMass(mass, false);
+		return;
+	}
+	for (i = 0; i < m_nodes.size(); ++i)
+	{
+		// nodes in no tetrahedron (e.g. unused points of a mesh file) must not become static (m_im = 0)
+		m_nodes[i].m_im = 1 / (nodeVolumes[i] > 0 ? nodeVolumes[i] : minNodeVolume);
+	}
+	setTotalMass(mass, false);
+}
+
+//
 btVector3 btSoftBody::getLinearVelocity()
 {
 	btVector3 total_momentum = btVector3(0, 0, 0);

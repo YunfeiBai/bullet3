@@ -996,9 +996,16 @@ public:
 	/* Set total density													*/
 	void setTotalDensity(btScalar density);
 	/* Set volume mass (using tetrahedrons)									*/
+	/* Each node is weighted by the average volume of its tetrahedra, see	*/
+	/* setTotalMassFromTetras for masses proportional to the node volume.	*/
 	void setVolumeMass(btScalar mass);
 	/* Set volume density (using tetrahedrons)								*/
 	void setVolumeDensity(btScalar density);
+	/* Set total mass, lumped by tetrahedron rest volume: every tetrahedron	*/
+	/* gives a quarter of its volume to each of its four nodes. Nodes in no	*/
+	/* tetrahedron get the smallest lumped node mass. Overwrites all node	*/
+	/* masses; without tetrahedra it is the same as setTotalMass(mass).		*/
+	void setTotalMassFromTetras(btScalar mass);
 	/* Get the linear velocity of the center of mass                        */
 	btVector3 getLinearVelocity();
 	/* Set the linear velocity of the center of mass                        */

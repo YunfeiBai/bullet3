@@ -9544,7 +9544,15 @@ bool PhysicsServerCommandProcessor::processDeformable(const UrdfDeformable& defo
 			// collion between deformable and deformable and self-collision
 			psb->m_cfg.collisions |= btSoftBody::fCollision::VF_DD;
 			psb->setCollisionFlags(0);
-			psb->setTotalMass(deformable.m_mass);
+			if (psb->m_tetras.size())
+			{
+				// volumetric mesh: node masses proportional to the volume they represent (lumped mass)
+				psb->setTotalMassFromTetras(deformable.m_mass);
+			}
+			else
+			{
+				psb->setTotalMass(deformable.m_mass);
+			}
 			psb->setSelfCollision(useSelfCollision);
 			psb->setSpringStiffness(deformable.m_repulsionStiffness);
 			psb->setGravityFactor(deformable.m_gravFactor);
