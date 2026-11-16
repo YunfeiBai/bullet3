@@ -74,6 +74,8 @@
 #include "../RoboticsLearning/KukaGraspExample.h"
 #include "../RoboticsLearning/GripperGraspExample.h"
 #include "../VariationalDeformableDemo/StableNeoHookean.h"
+#include "../VariationalDeformableDemo/ProjectiveDynamics.h"
+#include "../VariationalDeformableDemo/QuasiNewton.h"
 #include "../ReducedDeformableDemo/ConservationTest.h"
 #include "../ReducedDeformableDemo/ModeVisualizer.h"
 #include "../ReducedDeformableDemo/Springboard.h"
@@ -240,6 +242,8 @@ static ExampleEntry gDefaultExamples[] =
 		// ExampleEntry(1, "Simple Reduced Deformable Test", "Simple dynamics test for the reduced deformable objects", ReducedBasicTestCreateFunc),
 
 		ExampleEntry(0, "Variational Deformable Body"),
+		ExampleEntry(1, "Projective Dynamics", "Fast Simulation of Mass-Spring Systems (Liu et al. 2013) and Projective Dynamics (Bouaziz et al. 2014): a cloth and two solids advanced by one local/global solver with a prefactorized system matrix.", VariationalProjectiveDynamicsCreateFunc),
+		ExampleEntry(1, "Quasi-Newton Hyperelastic", "Quasi-Newton Methods for Real-Time Simulation of Hyperelastic Materials (Liu, Bouaziz, Kavan 2017): L-BFGS on the projective dynamics matrix, with a nearly incompressible Stable Neo-Hookean material.", VariationalQuasiNewtonCreateFunc),
 		ExampleEntry(1, "Stable Neo-Hookean", "Stable Neo-Hookean Flesh Simulation (Smith et al. 2018) with projected Newton and the eigenvalue filters of Chen et al. 2024: a twisted bar, a cube squashed flat and a cube with scrambled nodes all recover.", VariationalStableNeoHookeanCreateFunc),
         
 #ifdef INCLUDE_CLOTH_DEMOS

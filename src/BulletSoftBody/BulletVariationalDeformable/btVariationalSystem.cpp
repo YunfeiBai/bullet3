@@ -234,6 +234,7 @@ btVariationalSystem::btVariationalSystem()
 	  m_colliderMargin(0.01),
 	  m_frictionEpsilon(1e-2),
 	  m_twoWayCoupling(false),
+	  m_evaluateColliders(true),
 	  m_contact(0),
 	  m_topologyVersion(0)
 {
@@ -902,7 +903,7 @@ double btVariationalSystem::energy(const btVec3d* x) const
 	for (int b = 0; b < m_bodies.size(); b++)
 	{
 		const btVariationalBody& body = m_bodies[b];
-		if (body.m_colliders.size() == 0) continue;
+		if (body.m_colliders.size() == 0 || !m_evaluateColliders) continue;
 		for (int i = body.m_firstNode; i < body.m_firstNode + body.m_numNodes; i++)
 			if (!m_fixed[i]) addColliderNode(b, i, x[i], m_xPrev[i], E, 0, 0);
 	}
@@ -959,7 +960,7 @@ void btVariationalSystem::gradient(const btVec3d* x, btVec3d* g) const
 	for (int b = 0; b < m_bodies.size(); b++)
 	{
 		const btVariationalBody& body = m_bodies[b];
-		if (body.m_colliders.size() == 0) continue;
+		if (body.m_colliders.size() == 0 || !m_evaluateColliders) continue;
 		double unused = 0;
 		for (int i = body.m_firstNode; i < body.m_firstNode + body.m_numNodes; i++)
 			if (!m_fixed[i]) addColliderNode(b, i, x[i], m_xPrev[i], unused, &g[i], 0);
@@ -1047,7 +1048,7 @@ void btVariationalSystem::hessian(const btVec3d* x, btVariationalHessian& H, btV
 	for (int b = 0; b < m_bodies.size(); b++)
 	{
 		const btVariationalBody& body = m_bodies[b];
-		if (body.m_colliders.size() == 0) continue;
+		if (body.m_colliders.size() == 0 || !m_evaluateColliders) continue;
 		double unused = 0;
 		for (int i = body.m_firstNode; i < body.m_firstNode + body.m_numNodes; i++)
 			if (!m_fixed[i]) addColliderNode(b, i, x[i], m_xPrev[i], unused, 0, &H.m_nodeBlocks[i]);
@@ -1095,7 +1096,7 @@ void btVariationalSystem::vertexForceAndHessian(int node, const btVec3d* x, btVe
 		hess.addScaledIdentity(k);
 	}
 	const int b = m_nodeBody[node];
-	if (m_bodies[b].m_colliders.size() > 0)
+	if (m_bodies[b].m_colliders.size() > 0 && m_evaluateColliders)
 	{
 		double unused = 0;
 		btVec3d grad(0, 0, 0);
@@ -1108,7 +1109,7 @@ void btVariationalSystem::vertexForceAndHessian(int node, const btVec3d* x, btVe
 double btVariationalSystem::maxStepSize(const btVec3d* x, const btVec3d* p) const
 {
 	double alpha = 1.0;
-	if (m_colliderModel == COLLIDER_BARRIER)
+	if (m_colliderModel == COLLIDER_BARRIER && m_evaluateColliders)
 	{
 		// The distance to a convex obstacle is convex along a ray, so Newton steps on d(t) = s * d(0)
 		// approach the time of impact from below. Other shapes use the Lipschitz bound |d'| <= |p|.

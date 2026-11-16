@@ -116,7 +116,7 @@ protected:
 				 methodName(), system().numNodes(), system().m_tets.size(), m_averageIterations, m_averageSolveMs);
 		if (m_logToConsole && (m_stepCount % 30) == 0)
 		{
-			printf("[step %4d] %s | |grad| %.2e -> %.2e%s\n", m_stepCount, m_statusText, stats.m_initialGradient, stats.m_finalGradient, stats.m_converged ? "" : " (not converged)");
+			printf("[step %4d] %s | |grad| %.2e -> %.2e%s\n", m_stepCount, m_statusText, stats.m_initialGradient, stats.m_finalGradient, stats.m_converged ? "" : " (stopped at the iteration limit)");
 			// per body: inverted elements, volume relative to rest, lowest node
 			const btVariationalSystem& sys = system();
 			for (int b = 0; b < sys.m_bodies.size(); b++)

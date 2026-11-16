@@ -204,6 +204,7 @@ public:
 	double m_colliderMargin;     // distance at which rigid contact starts to act
 	double m_frictionEpsilon;    // [m/s] slip velocity below which friction behaves like static friction
 	bool m_twoWayCoupling;       // accumulate reaction impulses for dynamic rigid bodies
+	bool m_evaluateColliders;    // include the rigid collider terms in the evaluations (integrators that treat rigid contact by projection switch this off)
 
 	// ---- state (one entry per node)
 	btVec3dArray m_x, m_xPrev, m_v, m_vPrev, m_xTilde, m_fixedTarget;

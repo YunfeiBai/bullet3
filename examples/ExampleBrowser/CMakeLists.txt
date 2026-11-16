@@ -393,6 +393,10 @@ SET(BulletExampleBrowser_SRCS
 	../VariationalDeformableDemo/VariationalDemoBase.h
 	../VariationalDeformableDemo/StableNeoHookean.cpp
 	../VariationalDeformableDemo/StableNeoHookean.h
+	../VariationalDeformableDemo/ProjectiveDynamics.cpp
+	../VariationalDeformableDemo/ProjectiveDynamics.h
+	../VariationalDeformableDemo/QuasiNewton.cpp
+	../VariationalDeformableDemo/QuasiNewton.h
 	../ReducedDeformableDemo/ConservationTest.cpp
 	../ReducedDeformableDemo/ConservationTest.h
 	../ReducedDeformableDemo/Springboard.cpp
