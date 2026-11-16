@@ -103,8 +103,9 @@ public:
 	///wall clock time of the last deformable solve in seconds
 	double getLastSolveSeconds() const { return m_lastSolveSeconds; }
 
-	///Ties a node to a world-space point. Hard attachments are solved by the augmented Lagrangian of
-	///AVBD when the vertex block descent integrator is used, and as stiff springs otherwise.
+	///Ties a node to a world-space point. Hard attachments are enforced by the augmented Lagrangian of
+	///AVBD when the vertex block descent or the hybrid integrator is used; the other integrators
+	///treat them as springs of the given stiffness.
 	int addAttachment(btSoftBody* psb, int node, const btVector3& target, btScalar stiffness, bool hard = false);
 	///Ties two nodes (of the same or of different soft bodies) together.
 	int addAttachment(btSoftBody* psbA, int nodeA, btSoftBody* psbB, int nodeB, btScalar stiffness, bool hard = false);

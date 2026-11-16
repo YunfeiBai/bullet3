@@ -681,6 +681,7 @@ end
 --			include "../test/hello_gtest"
 			include "../test/collision"
 			include "../test/BulletDynamics/pendulum"
+			include "../test/BulletSoftBody"
 			if not _OPTIONS["no-bullet3"] then
 				if not _OPTIONS["no-extras"] then
 					include "../test/InverseDynamics"
