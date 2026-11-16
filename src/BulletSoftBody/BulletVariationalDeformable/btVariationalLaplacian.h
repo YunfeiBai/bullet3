@@ -18,6 +18,7 @@ subject to the following restrictions:
 
 #include "btVariationalSystem.h"
 #include "btVariationalSparse.h"
+#include "btVariationalIntegrator.h"
 
 ///The constant, prefactorized system matrix at the heart of projective dynamics:
 ///
@@ -66,8 +67,45 @@ public:
 
 	virtual void apply(const btVec3d* r, btVec3d* z) const { m_cholesky.solve(r, z); }
 
+	///diagonal entry of the full matrix
+	double diagonal(int node) const
+	{
+		for (int p = m_full.m_rowStart[node]; p < m_full.m_rowStart[node + 1]; p++)
+			if (m_full.m_cols[p] == node) return m_full.m_vals[p];
+		return 0.0;
+	}
+	bool isFixed(int node) const { return m_fixed[node] != 0; }
 	int numFactorizations() const { return m_numFactorizations; }
 	int factorNonZeros() const { return m_cholesky.nonZeros(); }
+};
+
+///Two-level preconditioner for the Newton systems of the incremental potential:
+///
+///      M^-1 = D^-1 + P A^-1 P
+///
+///D holds the 3x3 diagonal blocks of the current Hessian (block Jacobi) and A is the prefactorized
+///Laplacian of projective dynamics. The Laplacian solve removes the smooth error components that
+///make block Jacobi slow on stiff or finely meshed bodies, at the price of one pair of triangular
+///solves and without ever being refactorized. The mask P switches the global correction off for nodes
+///whose actual stiffness is far above what the Laplacian knows about (active contact barriers, hard
+///attachments); those are left to the block Jacobi part, which sees the true diagonal.
+class btVariationalLaplacianPreconditioner : public btVariationalPreconditioner
+{
+	const btVariationalLaplacian* m_laplacian;
+	btVariationalBlockJacobi m_jacobi;
+	btAlignedObjectArray<char> m_masked;
+	mutable btVec3dArray m_tmp, m_sol;
+	int m_numMasked;
+
+public:
+	double m_maskRatio;  // a node is masked when its Hessian diagonal exceeds this multiple of the Laplacian diagonal
+	bool m_useLaplacian;  // false: plain block Jacobi
+
+	btVariationalLaplacianPreconditioner() : m_laplacian(0), m_numMasked(0), m_maskRatio(4.0), m_useLaplacian(true) {}
+	void setLaplacian(const btVariationalLaplacian* laplacian) { m_laplacian = laplacian; }
+	int numMasked() const { return m_numMasked; }
+	virtual void build(const btVariationalHessian& H);
+	virtual void apply(const btVec3d* r, btVec3d* z) const;
 };
 
 #endif  // BT_VARIATIONAL_LAPLACIAN_H

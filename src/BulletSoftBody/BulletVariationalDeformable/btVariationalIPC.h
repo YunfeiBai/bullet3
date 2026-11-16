@@ -44,6 +44,8 @@ subject to the following restrictions:
 ///paper; vertex block descent uses the same potential with per-vertex feasible steps. Rigid colliders
 ///are not part of this class: btVariationalSystem treats them through their signed distance, and its
 ///COLLIDER_BARRIER model applies the same log barrier to them.
+class btSoftBody;
+
 class btVariationalIPC : public btVariationalContact
 {
 public:
@@ -58,6 +60,13 @@ public:
 
 	btVariationalIPC();
 
+	///Soft bodies that share a non-zero collision group do not collide with each other. Use this for
+	///bodies that are tied together by attachments and touch at the joint: a barrier needs a positive
+	///distance to start from.
+	void setCollisionGroup(const btSoftBody* psb, int group);
+	///false if the last step started from touching or intersecting surfaces (the barrier is infinite there)
+	bool initialStateValid() const { return m_initialStateValid; }
+
 	// ---- btVariationalContact
 	virtual void beginStep(const btVariationalSystem& system);
 	virtual double energy(const btVec3d* x) const;
@@ -68,6 +77,7 @@ public:
 	virtual double vertexMaxStepSize(int node, const btVec3d* x, const btVec3d& dx, bool conservative) const;
 	virtual double prepareLocalSteps(const btVec3d* x, double radius, const btVec3d* direction = 0);
 	virtual bool updateStiffness(const btVec3d* x);
+	virtual bool mayHaveContact(const btVec3d* x, const btVec3d* direction) const;
 
 	// ---- queries
 	double getDhat() const { return m_dhatActive; }
@@ -75,7 +85,8 @@ public:
 	int numCandidates() const { return m_pairs.size(); }
 	///number of candidate pairs closer than dhat and the smallest distance among all candidates
 	int countActivePairs(const btVec3d* x, double* minDistance) const;
-	///true if any surface triangle is pierced by an edge of the collision mesh (O(n^2), for tests)
+	///true if any surface triangle is pierced by an edge of the collision mesh, among the pairs this
+	///contact model handles (O(n^2), for tests and diagnostics)
 	bool hasIntersections(const btVec3d* x) const;
 
 private:
@@ -100,6 +111,15 @@ private:
 		btMat3d m_hess[4][4];
 	};
 
+	btAlignedObjectArray<const btSoftBody*> m_groupBodies;
+	btAlignedObjectArray<int> m_groupIds;
+	btAlignedObjectArray<int> m_bodyGroup;  // per body of the system, resolved at beginStep
+	bool m_initialStateValid, m_warned;
+	bool excluded(int bodyA, int bodyB) const
+	{
+		if (bodyA == bodyB) return !m_selfCollision;
+		return m_bodyGroup.size() > 0 && m_bodyGroup[bodyA] != 0 && m_bodyGroup[bodyA] == m_bodyGroup[bodyB];
+	}
 	const btVariationalSystem* m_system;
 	double m_dhatActive, m_kappa, m_kappaMax, m_sceneDiagonal;
 	double m_prevMinDistance2;

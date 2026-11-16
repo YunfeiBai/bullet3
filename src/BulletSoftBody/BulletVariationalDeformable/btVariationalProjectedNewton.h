@@ -39,15 +39,18 @@ public:
 	double m_tolerance;  // [m/s] stop when the Newton step, divided by the time step, is below this
 	int m_maxLinearIterations;
 	double m_linearTolerance;                             // relative residual of the conjugate gradient solve
-	const btVariationalPreconditioner* m_preconditioner;  // optional override of the block Jacobi preconditioner
+	btVariationalPreconditioner* m_preconditioner;  // optional override of the block Jacobi preconditioner
 	///If set, an iteration first tries the exact Hessian and only falls back to the filtered one when
 	///conjugate gradients meets negative curvature. Exact steps converge quadratically, while the
 	///filtered Hessian only gives linear convergence wherever the filter is active.
 	bool m_projectOnDemand;
+	///continue from the positions already in the system instead of computing an initial guess
+	///(used when another solver has warm started the step)
+	bool m_skipInitialGuess;
 	int m_numProjectedSolves, m_numExactSolves;  // statistics of the last solve
 
 	btVariationalProjectedNewton()
-		: m_maxIterations(50), m_tolerance(1e-3), m_maxLinearIterations(2000), m_linearTolerance(1e-2), m_preconditioner(0), m_projectOnDemand(true), m_numProjectedSolves(0), m_numExactSolves(0)
+		: m_maxIterations(50), m_tolerance(1e-3), m_maxLinearIterations(2000), m_linearTolerance(1e-2), m_preconditioner(0), m_projectOnDemand(true), m_skipInitialGuess(false), m_numProjectedSolves(0), m_numExactSolves(0)
 	{
 	}
 

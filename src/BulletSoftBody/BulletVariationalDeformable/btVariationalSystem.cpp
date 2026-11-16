@@ -1197,6 +1197,39 @@ double btVariationalSystem::gradientNorm(const btVec3d* g) const
 	return m;
 }
 
+bool btVariationalSystem::mayHaveContact(const btVec3d* x) const
+{
+	const int n = numNodes();
+	if (m_evaluateColliders)
+	{
+		for (int b = 0; b < m_bodies.size(); b++)
+		{
+			const btVariationalBody& body = m_bodies[b];
+			for (int s = 0; s < body.m_colliders.size(); s++)
+			{
+				const btVariationalCollider& col = m_colliders[body.m_colliders[s]];
+				for (int i = body.m_firstNode; i < body.m_firstNode + body.m_numNodes; i++)
+				{
+					if (m_fixed[i]) continue;
+					double d;
+					btVec3d nrm;
+					col.signedDistance(x[i], d, nrm);
+					if (d < m_colliderMargin + 2.0 * (m_xTilde[i] - x[i]).length()) return true;
+				}
+			}
+		}
+	}
+	if (m_contact)
+	{
+		// candidates along twice the inertial displacement
+		btVec3dArray direction;
+		direction.resize(n);
+		for (int i = 0; i < n; i++) direction[i] = (m_xTilde[i] - x[i]) * 2.0;
+		if (m_contact->mayHaveContact(x, &direction[0])) return true;
+	}
+	return false;
+}
+
 double btVariationalSystem::kineticEnergy() const
 {
 	double E = 0;

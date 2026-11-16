@@ -107,6 +107,59 @@ double btVariationalIntegrator::lineSearch(const btVariationalSystem& system, bt
 	return 0.0;
 }
 
+void btVariationalAugmentedLagrangian::warmStart(btVariationalSystem& system) const
+{
+	for (int a = 0; a < system.m_attachments.size(); a++)
+	{
+		btVariationalAttachment& at = system.m_attachments[a];
+		if (!at.m_hard || !m_enabled)
+		{
+			at.m_c0.setZero();
+			if (!at.m_hard) at.m_lambda.setZero();
+			continue;
+		}
+		at.m_lambda *= m_alpha * m_gamma;
+		at.m_penalty *= m_gamma;
+		if (at.m_penalty < m_penaltyMin) at.m_penalty = m_penaltyMin;
+		if (at.m_penalty > m_penaltyMax) at.m_penalty = m_penaltyMax;
+		// Stabilization: C = C(x) - alpha C(x_n). The error is measured against the previous target, so
+		// a moving target is followed exactly and only old error is bled off slowly.
+		const btVec3d c0 = system.m_xPrev[at.m_nodeA] - (at.m_nodeB >= 0 ? system.m_xPrev[at.m_nodeB] : at.m_prevTarget);
+		at.m_c0 = c0 * m_alpha;
+	}
+}
+
+double btVariationalAugmentedLagrangian::updateDuals(btVariationalSystem& system, const btVec3d* x) const
+{
+	double worst = 0.0;
+	for (int a = 0; a < system.m_attachments.size(); a++)
+	{
+		btVariationalAttachment& at = system.m_attachments[a];
+		if (!at.m_hard) continue;
+		const btVec3d raw = x[at.m_nodeA] - (at.m_nodeB >= 0 ? x[at.m_nodeB] : at.m_target);
+		if (raw.length() > worst) worst = raw.length();
+		if (!m_enabled) continue;
+		const btVec3d C = raw - at.m_c0;
+		at.m_lambda += C * at.m_penalty;
+		at.m_penalty += m_beta * C.length();
+		if (m_growth > 1.0 && C.length() > m_growthThreshold) at.m_penalty *= m_growth;
+		if (at.m_penalty > m_penaltyMax) at.m_penalty = m_penaltyMax;
+	}
+	return worst;
+}
+
+void btVariationalAugmentedLagrangian::finishStep(btVariationalSystem& system)
+{
+	for (int a = 0; a < system.m_attachments.size(); a++) system.m_attachments[a].m_prevTarget = system.m_attachments[a].m_target;
+}
+
+bool btVariationalAugmentedLagrangian::hasHardAttachments(const btVariationalSystem& system)
+{
+	for (int a = 0; a < system.m_attachments.size(); a++)
+		if (system.m_attachments[a].m_hard) return true;
+	return false;
+}
+
 void btVariationalBlockJacobi::build(const btVariationalHessian& H)
 {
 	const int n = H.m_nodeBlocks.size();
@@ -152,7 +205,13 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 		acc += clock.getTimeMicroseconds() * 1e-6;      \
 		clock.reset();                                  \
 	}
-	double covered = advanceToInitialGuess(system, true);
+	double covered = m_skipInitialGuess ? advanceToInitialGuess(system, false) : advanceToInitialGuess(system, true);
+	if (m_skipInitialGuess && system.m_contact)
+	{
+		// make the contact candidates valid for the current positions
+		for (int i = 0; i < n; i++) m_direction[i].setZero();
+		system.maxStepSize(x, &m_direction[0]);
+	}
 	double E = system.energy(x);
 	BT_NEWTON_LAP(tGuess);
 	int skipExact = 0;  // iterations for which the exact Hessian is not tried after it failed
@@ -182,16 +241,13 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 			system.hessian(x, m_hessian, exact ? BT_VARIATIONAL_FILTER_NONE : system.m_hessianFilter);
 			BT_NEWTON_LAP(tHessian);
 			for (int i = 0; i < n; i++) m_scratch[i] = -m_gradient[i];
-			const btVariationalPreconditioner* pre = m_preconditioner;
-			if (!pre)
-			{
-				m_blockJacobi.build(m_hessian);
-				pre = &m_blockJacobi;
-			}
+			btVariationalPreconditioner* pre = m_preconditioner ? m_preconditioner : &m_blockJacobi;
+			pre->build(m_hessian);
 			bool indefinite = false;
 			m_stats.m_linearIterations += btVariationalConjugateGradient(m_hessian, &m_scratch[0], &m_direction[0], fixed, n, pre, m_linearTolerance, m_maxLinearIterations, &indefinite);
 			BT_NEWTON_LAP(tLinear);
 			double step = 0, slope = 0;
+			int stepNode = -1;
 			for (int i = 0; i < n; i++)
 			{
 				if (fixed[i])
@@ -201,7 +257,11 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 				}
 				slope += m_gradient[i].dot(m_direction[i]);
 				const double a = m_direction[i].maxAbs();
-				if (a > step) step = a;
+				if (a > step)
+				{
+					step = a;
+					stepNode = i;
+				}
 			}
 			if (exact && (indefinite || !(slope < 0.0)))
 			{
@@ -231,7 +291,9 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 				m_numProjectedSolves++;
 			m_stats.m_iterations++;
 			if (alpha < m_stats.m_minStepSize) m_stats.m_minStepSize = alpha;
-			if (m_verbose) printf("  newton %3d (%s): |g| %.3e  step %.3e  alphaMax %.3e  alpha %.3e  E %.9e  cg %d\n", iter, exact ? "exact" : "filtered", gNorm, step, alphaMax, alpha, E, m_stats.m_linearIterations);
+			if (m_verbose)
+				printf("  newton %3d (%s): |g| %.3e  step %.3e (node %d of body %d)  alphaMax %.3e  alpha %.3e  E %.9e  cg %d\n", iter, exact ? "exact" : "filtered", gNorm, step,
+					   stepNode, stepNode >= 0 ? system.m_nodeBody[stepNode] : -1, alphaMax, alpha, E, m_stats.m_linearIterations);
 			if (alpha == 0.0) done = true;  // no further decrease possible at working precision
 			break;
 		}

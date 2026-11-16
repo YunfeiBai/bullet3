@@ -147,3 +147,34 @@ void btVariationalLaplacian::subtractFixedCoupling(const btVec3d* x, btVec3d* rh
 {
 	for (int c = 0; c < m_couplingFree.size(); c++) rhs[m_couplingFree[c]] -= x[m_couplingFixed[c]] * m_couplingValue[c];
 }
+
+void btVariationalLaplacianPreconditioner::build(const btVariationalHessian& H)
+{
+	m_jacobi.build(H);
+	const int n = H.m_nodeBlocks.size();
+	m_masked.resize(n);
+	m_tmp.resize(n);
+	m_sol.resize(n);
+	m_numMasked = 0;
+	if (!m_laplacian || !m_useLaplacian) return;
+	btAlignedObjectArray<btMat3d> D;
+	D.resize(n);
+	H.diagonalBlocks(&D[0]);
+	for (int i = 0; i < n; i++)
+	{
+		const double a = m_laplacian->diagonal(i);
+		m_masked[i] = (m_laplacian->isFixed(i) || !(D[i].trace() <= m_maskRatio * 3.0 * a)) ? 1 : 0;
+		if (m_masked[i]) m_numMasked++;
+	}
+}
+
+void btVariationalLaplacianPreconditioner::apply(const btVec3d* r, btVec3d* z) const
+{
+	m_jacobi.apply(r, z);
+	if (!m_laplacian || !m_useLaplacian) return;
+	const int n = m_masked.size();
+	for (int i = 0; i < n; i++) m_tmp[i] = m_masked[i] ? btVec3d(0, 0, 0) : r[i];
+	m_laplacian->solve(&m_tmp[0], &m_sol[0]);
+	for (int i = 0; i < n; i++)
+		if (!m_masked[i]) z[i] += m_sol[i];
+}

@@ -79,6 +79,7 @@
 #include "../VariationalDeformableDemo/IncrementalPotentialContact.h"
 #include "../VariationalDeformableDemo/VertexBlockDescent.h"
 #include "../VariationalDeformableDemo/AugmentedVertexBlockDescent.h"
+#include "../VariationalDeformableDemo/VariationalCombined.h"
 #include "../ReducedDeformableDemo/ConservationTest.h"
 #include "../ReducedDeformableDemo/ModeVisualizer.h"
 #include "../ReducedDeformableDemo/Springboard.h"
@@ -251,6 +252,7 @@ static ExampleEntry gDefaultExamples[] =
 		ExampleEntry(1, "Incremental Potential Contact", "Incremental Potential Contact (Li et al. 2020): log barrier contact with continuous collision detection and lagged friction, solved by projected Newton. Soft cubes and slabs pile up without ever interpenetrating.", VariationalIncrementalPotentialContactCreateFunc),
 		ExampleEntry(1, "Vertex Block Descent", "Vertex Block Descent (Chen, Liu, Yang, Yuksel 2024): Gauss-Seidel over colored vertices with one 3x3 Newton step per vertex and no global linear system. A batch of soft cubes rains down.", VariationalVertexBlockDescentCreateFunc),
 		ExampleEntry(1, "Augmented Vertex Block Descent", "Augmented Vertex Block Descent (Giles, Diaz, Yuksel 2025): hard joints through an augmented Lagrangian inside VBD. Two chains with a hundredfold heavier block at the end: hard joints stay closed, springs of the same stiffness come apart.", VariationalAugmentedVertexBlockDescentCreateFunc),
+		ExampleEntry(1, "Combined: Hybrid Solver", "All of the above in one scene and one potential: a tower of Stable Neo-Hookean cubes, a wrecking ball on hard (augmented Lagrangian) joints, a mass-spring cloth draping over a soft cube and a twisted bar, with barrier contact and friction between everything. The hybrid integrator picks Newton, quasi-Newton or Laplacian preconditioning per step; the slider switches to the individual methods.", VariationalCombinedCreateFunc),
         
 #ifdef INCLUDE_CLOTH_DEMOS
 		ExampleEntry(0, "Soft Body"),

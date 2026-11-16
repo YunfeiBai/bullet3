@@ -128,7 +128,8 @@ void btVariationalDeformableSolver::rebuildIfNeeded()
 		psb->setActivationState(DISABLE_DEACTIVATION);
 	}
 	m_system.buildTopology();
-	for (int a = 0; a < m_attachmentSettings.size(); a++)
+	// (without any node, as during the teardown of a world, there is nothing an attachment could refer to)
+	for (int a = 0; a < m_attachmentSettings.size() && m_system.numNodes() > 0; a++)
 	{
 		const AttachmentSettings& src = m_attachmentSettings[a];
 		const int bodyA = m_system.findBody(src.m_psbA);

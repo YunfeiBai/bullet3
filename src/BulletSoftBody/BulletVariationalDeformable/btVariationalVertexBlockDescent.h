@@ -66,17 +66,13 @@ public:
 	double m_rayleighDamping;  // gamma [s]
 	bool m_parallel;           // update the vertices of a color with btParallelFor
 
-	// augmented Lagrangian of AVBD
-	bool m_augmentedLagrangian;
-	double m_alpha;       // fraction of the start-of-step constraint error that is kept (stabilization)
-	double m_beta;        // growth of the penalty stiffness per unit of constraint error and sweep
-	double m_gamma;       // warm start decay of lambda and of the penalty stiffness
-	double m_penaltyMin;
-	double m_penaltyMax;
+	///augmented Lagrangian of AVBD for the hard attachments (m_al.m_enabled = false gives plain VBD,
+	///which treats them as penalty springs)
+	btVariationalAugmentedLagrangian m_al;
 
 	btVariationalVertexBlockDescent();
 
-	virtual const char* getName() const { return m_augmentedLagrangian ? "AugmentedVertexBlockDescent" : "VertexBlockDescent"; }
+	virtual const char* getName() const { return m_al.m_enabled ? "AugmentedVertexBlockDescent" : "VertexBlockDescent"; }
 	virtual void solve(btVariationalSystem& system);
 
 	int numColors() const { return m_colorStart.size() > 0 ? m_colorStart.size() - 1 : 0; }
@@ -96,8 +92,6 @@ private:
 	btVec3dArray m_prevIterate, m_prevPrevIterate;
 	double m_maxConstraintError;
 
-	void warmStartConstraints(btVariationalSystem& system) const;
-	void updateDuals(btVariationalSystem& system, const btVec3d* x);
 };
 
 #endif  // BT_VARIATIONAL_VERTEX_BLOCK_DESCENT_H

@@ -14,6 +14,7 @@ subject to the following restrictions:
 */
 
 #include "btVariationalIPC.h"
+#include <stdio.h>
 
 btVariationalIPC::btVariationalIPC()
 	: m_dhat(0.0),
@@ -23,6 +24,8 @@ btVariationalIPC::btVariationalIPC()
 	  m_selfCollision(true),
 	  m_friction(true),
 	  m_frictionEpsilon(1e-2),
+	  m_initialStateValid(true),
+	  m_warned(false),
 	  m_system(0),
 	  m_dhatActive(0.0),
 	  m_kappa(0.0),
@@ -32,6 +35,18 @@ btVariationalIPC::btVariationalIPC()
 	  m_muted(false),
 	  m_localRadius(0.0)
 {
+}
+
+void btVariationalIPC::setCollisionGroup(const btSoftBody* psb, int group)
+{
+	for (int i = 0; i < m_groupBodies.size(); i++)
+		if (m_groupBodies[i] == psb)
+		{
+			m_groupIds[i] = group;
+			return;
+		}
+	m_groupBodies.push_back(psb);
+	m_groupIds.push_back(group);
 }
 
 namespace
@@ -173,7 +188,7 @@ void btVariationalIPC::buildCandidates(const btVec3d* x, const btVec3d* p, doubl
 							stamp[t] = i;
 							const btVariationalTriangle& tri = sys.m_triangles[t];
 							if (tri.m_n[0] == i || tri.m_n[1] == i || tri.m_n[2] == i) continue;
-							if (!m_selfCollision && tri.m_body == sys.m_nodeBody[i]) continue;
+							if (excluded(tri.m_body, sys.m_nodeBody[i])) continue;
 							if (!btBoxesOverlap(m_boxMin[i], m_boxMax[i], triMin[t], triMax[t])) continue;
 							if (sys.m_fixed[i] && sys.m_fixed[tri.m_n[0]] && sys.m_fixed[tri.m_n[1]] && sys.m_fixed[tri.m_n[2]]) continue;
 							Pair pr;
@@ -209,7 +224,7 @@ void btVariationalIPC::buildCandidates(const btVec3d* x, const btVec3d* p, doubl
 							stamp[f] = e;
 							const btVariationalEdge& eb = sys.m_edges[f];
 							if (ea.m_n[0] == eb.m_n[0] || ea.m_n[0] == eb.m_n[1] || ea.m_n[1] == eb.m_n[0] || ea.m_n[1] == eb.m_n[1]) continue;
-							if (!m_selfCollision && ea.m_body == eb.m_body) continue;
+							if (excluded(ea.m_body, eb.m_body)) continue;
 							if (!btBoxesOverlap(edgeMin[e], edgeMax[e], edgeMin[f], edgeMax[f])) continue;
 							if (sys.m_fixed[ea.m_n[0]] && sys.m_fixed[ea.m_n[1]] && sys.m_fixed[eb.m_n[0]] && sys.m_fixed[eb.m_n[1]]) continue;
 							Pair pr;
@@ -453,7 +468,23 @@ void btVariationalIPC::beginStep(const btVariationalSystem& system)
 	m_sceneDiagonal = (hi - lo).length();
 	if (!(m_sceneDiagonal > 0.0)) m_sceneDiagonal = 1.0;
 	m_dhatActive = m_dhat > 0.0 ? m_dhat : m_dhatRelative * m_sceneDiagonal;
+	m_bodyGroup.resize(0);
+	m_bodyGroup.resize(system.m_bodies.size(), 0);
+	for (int b = 0; b < system.m_bodies.size(); b++)
+		for (int i = 0; i < m_groupBodies.size(); i++)
+			if (m_groupBodies[i] == system.m_bodies[b].m_psb) m_bodyGroup[b] = m_groupIds[i];
 	buildCandidates(x, 0, 0.5 * m_dhatActive);
+	{
+		double gap = 0;
+		countActivePairs(x, &gap);
+		m_initialStateValid = gap > 0.0;
+		if (!m_initialStateValid && !m_warned)
+		{
+			printf("btVariationalIPC: the step starts from touching or intersecting surfaces; the barrier cannot recover from that. "
+				   "Separate the bodies, or put jointed bodies into one collision group (setCollisionGroup).\n");
+			m_warned = true;
+		}
+	}
 
 	if (m_stiffness > 0.0)
 	{
@@ -667,6 +698,28 @@ double btVariationalIPC::vertexMaxStepSize(int node, const btVec3d* x, const btV
 	return alpha;
 }
 
+bool btVariationalIPC::mayHaveContact(const btVec3d* x, const btVec3d* direction) const
+{
+	m_reference.resize(0);
+	buildCandidates(x, direction, 0.5 * m_dhatActive);
+	for (int q = 0; q < m_pairs.size(); q++)
+	{
+		const Pair& pair = m_pairs[q];
+		const btVec3d xs[4] = {x[pair.m_n[0]], x[pair.m_n[1]], x[pair.m_n[2]], x[pair.m_n[3]]};
+		// how much the two primitives can approach each other: displacements relative to their mean
+		btVec3d mean(0, 0, 0);
+		for (int j = 0; j < 4; j++) mean += direction[pair.m_n[j]] * 0.25;
+		double len[4];
+		for (int j = 0; j < 4; j++) len[j] = (direction[pair.m_n[j]] - mean).length();
+		const double a = pair.m_edgeEdge ? (len[0] > len[1] ? len[0] : len[1]) : len[0];
+		double b = len[2] > len[3] ? len[2] : len[3];
+		if (!pair.m_edgeEdge && len[1] > b) b = len[1];
+		const double d = sqrt(pair.m_edgeEdge ? btEdgeEdgeDistanceSquared(xs) : btPointTriangleDistanceSquared(xs));
+		if (d - a - b < m_dhatActive) return true;
+	}
+	return false;
+}
+
 bool btVariationalIPC::updateStiffness(const btVec3d* x)
 {
 	if (!m_adaptiveStiffness) return false;
@@ -713,6 +766,7 @@ bool btVariationalIPC::hasIntersections(const btVec3d* x) const
 		{
 			const int* en = sys.m_edges[e].m_n;
 			if (en[0] == tn[0] || en[0] == tn[1] || en[0] == tn[2] || en[1] == tn[0] || en[1] == tn[1] || en[1] == tn[2]) continue;
+			if (excluded(sys.m_edges[e].m_body, sys.m_triangles[t].m_body)) continue;  // not a pair this contact model handles
 			// segment - triangle intersection (Moeller-Trumbore)
 			const btVec3d o = x[en[0]], dir = x[en[1]] - o;
 			const btVec3d h = dir.cross(e2);

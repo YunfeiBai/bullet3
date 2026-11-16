@@ -149,6 +149,8 @@ class btVariationalPreconditioner
 {
 public:
 	virtual ~btVariationalPreconditioner() {}
+	///called whenever the matrix to be preconditioned has changed
+	virtual void build(const btVariationalHessian& H) { (void)H; }
 	virtual void apply(const btVec3d* r, btVec3d* z) const = 0;
 };
 
@@ -185,6 +187,14 @@ public:
 		(void)x;
 		(void)direction;
 		return radius;
+	}
+	///True if two surfaces could come within the contact distance while every node moves from x along
+	///(a part of) its segment to x + direction.
+	virtual bool mayHaveContact(const btVec3d* x, const btVec3d* direction) const
+	{
+		(void)x;
+		(void)direction;
+		return false;
 	}
 	///Gives the contact model the chance to adapt its stiffness to the current iterate. Returns true
 	///if the energy changed as a result.
@@ -315,6 +325,9 @@ public:
 	double maxStepSize(const btVec3d* x, const btVec3d* p) const;
 	///infinity norm of the gradient over the free nodes
 	double gradientNorm(const btVec3d* g) const;
+	///True if this step may involve contact: a node could reach a rigid collider, or two deformable
+	///surfaces could come within the contact distance, on the way from x to the inertial target.
+	bool mayHaveContact(const btVec3d* x) const;
 
 	// ---- helpers shared by the integrators
 	btMat3d deformationGradient(const btVariationalTet& tet, const btVec3d* x) const

@@ -40,6 +40,43 @@ struct btVariationalSolveStats
 	}
 };
 
+///Augmented Lagrangian bookkeeping for the hard attachments of a system, as introduced for vertex
+///block descent by "Augmented Vertex Block Descent" (Giles, Diaz, Yuksel 2025). Every hard attachment
+///carries a dual variable lambda and a penalty stiffness k; its energy is lambda.C + k/2 |C|^2.
+///  warmStart():   lambda <- alpha gamma lambda, k <- gamma k (clamped), and the error present at the
+///                 start of the step is only removed at the rate (1 - alpha) per step,
+///  updateDuals(): lambda <- lambda + k C,  k <- k + beta |C|.
+///Any solver can use this: the constraint error then converges to zero instead of settling at the
+///compromise a plain penalty spring finds, also for extreme mass and stiffness ratios.
+struct btVariationalAugmentedLagrangian
+{
+	bool m_enabled;
+	double m_alpha;  // fraction of the start-of-step constraint error that is kept (0.99 in the paper)
+	double m_beta;   // growth of the penalty stiffness per unit of constraint error and update
+	double m_gamma;  // warm start decay of lambda and of the penalty stiffness
+	double m_penaltyMin;
+	double m_penaltyMax;
+	///Optional multiplicative growth of the penalty stiffness for attachments whose error is still above
+	///m_growthThreshold at an update. Vertex block descent keeps this at 1 (stiff penalties slow down
+	///Gauss-Seidel); solvers with a global linear solve can afford a large penalty and need far fewer
+	///dual updates with it.
+	double m_growth;
+	double m_growthThreshold;  // [m]
+
+	btVariationalAugmentedLagrangian()
+		: m_enabled(true), m_alpha(0.95), m_beta(1e5), m_gamma(0.99), m_penaltyMin(1.0), m_penaltyMax(1e9), m_growth(1.0), m_growthThreshold(1e-4)
+	{
+	}
+
+	///call once at the start of a step (after btVariationalSystem::beginStep)
+	void warmStart(btVariationalSystem& system) const;
+	///dual update at the iterate x; returns the largest constraint error |C| of the hard attachments
+	double updateDuals(btVariationalSystem& system, const btVec3d* x) const;
+	///call once at the end of a step
+	static void finishStep(btVariationalSystem& system);
+	static bool hasHardAttachments(const btVariationalSystem& system);
+};
+
 ///A time integrator minimizes the incremental potential of btVariationalSystem for one time step.
 ///On entry system.m_x holds the start-of-step positions x_n and system.m_xTilde the inertial target;
 ///on exit system.m_x holds x_{n+1}. Velocities are updated by the system afterwards.
@@ -77,8 +114,9 @@ class btVariationalBlockJacobi : public btVariationalPreconditioner
 	btAlignedObjectArray<btMat3d> m_inverse;
 
 public:
-	void build(const btVariationalHessian& H);
+	virtual void build(const btVariationalHessian& H);
 	virtual void apply(const btVec3d* r, btVec3d* z) const;
+	const btMat3d& inverseBlock(int node) const { return m_inverse[node]; }
 };
 
 #endif  // BT_VARIATIONAL_INTEGRATOR_H

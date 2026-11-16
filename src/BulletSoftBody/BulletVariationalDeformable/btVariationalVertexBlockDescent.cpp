@@ -25,12 +25,6 @@ btVariationalVertexBlockDescent::btVariationalVertexBlockDescent()
 	  m_chebyshevRho(0.93),
 	  m_rayleighDamping(0.0),
 	  m_parallel(true),
-	  m_augmentedLagrangian(true),
-	  m_alpha(0.99),
-	  m_beta(1e5),
-	  m_gamma(0.99),
-	  m_penaltyMin(1.0),
-	  m_penaltyMax(1e9),
 	  m_coloringSignature(-1.0),
 	  m_lastTopologyVersion(-1),
 	  m_maxConstraintError(0.0)
@@ -182,45 +176,6 @@ double btVariationalVertexBlockDescent::sweep(const btVariationalSystem& system,
 	return largest;
 }
 
-void btVariationalVertexBlockDescent::warmStartConstraints(btVariationalSystem& system) const
-{
-	for (int a = 0; a < system.m_attachments.size(); a++)
-	{
-		btVariationalAttachment& at = system.m_attachments[a];
-		if (!at.m_hard || !m_augmentedLagrangian)
-		{
-			at.m_c0.setZero();
-			if (!at.m_hard) at.m_lambda.setZero();
-			continue;
-		}
-		at.m_lambda *= m_alpha * m_gamma;
-		at.m_penalty *= m_gamma;
-		if (at.m_penalty < m_penaltyMin) at.m_penalty = m_penaltyMin;
-		if (at.m_penalty > m_penaltyMax) at.m_penalty = m_penaltyMax;
-		// Stabilization: C = C(x) - alpha C(x_n). The error is measured against the previous target, so
-		// a moving target is followed exactly and only old error is bled off slowly.
-		const btVec3d c0 = system.m_xPrev[at.m_nodeA] - (at.m_nodeB >= 0 ? system.m_xPrev[at.m_nodeB] : at.m_prevTarget);
-		at.m_c0 = c0 * m_alpha;
-	}
-}
-
-void btVariationalVertexBlockDescent::updateDuals(btVariationalSystem& system, const btVec3d* x)
-{
-	m_maxConstraintError = 0.0;
-	for (int a = 0; a < system.m_attachments.size(); a++)
-	{
-		btVariationalAttachment& at = system.m_attachments[a];
-		if (!at.m_hard) continue;
-		const btVec3d raw = x[at.m_nodeA] - (at.m_nodeB >= 0 ? x[at.m_nodeB] : at.m_target);
-		if (raw.length() > m_maxConstraintError) m_maxConstraintError = raw.length();
-		if (!m_augmentedLagrangian) continue;
-		const btVec3d C = raw - at.m_c0;
-		at.m_lambda += C * at.m_penalty;
-		at.m_penalty += m_beta * C.length();
-		if (at.m_penalty > m_penaltyMax) at.m_penalty = m_penaltyMax;
-	}
-}
-
 void btVariationalVertexBlockDescent::solve(btVariationalSystem& system)
 {
 	const int n = system.numNodes();
@@ -230,7 +185,7 @@ void btVariationalVertexBlockDescent::solve(btVariationalSystem& system)
 	const bool firstStep = system.m_topologyVersion != m_lastTopologyVersion;
 	m_lastTopologyVersion = system.m_topologyVersion;
 	buildColoring(system);
-	warmStartConstraints(system);
+	m_al.warmStart(system);
 
 	// initial guess
 	const bool barrier = system.m_contact != 0 || system.m_colliderModel == btVariationalSystem::COLLIDER_BARRIER;
@@ -305,7 +260,7 @@ void btVariationalVertexBlockDescent::solve(btVariationalSystem& system)
 				m_prevIterate[i] = x[i];
 			}
 		}
-		updateDuals(system, x);
+		m_maxConstraintError = m_al.updateDuals(system, x);
 		if (m_verbose) printf("  vbd sweep %3d: max change %.3e  E %.9e  constraint error %.3e\n", iter, change, system.energy(x), m_maxConstraintError);
 		if (m_tolerance > 0.0 && change / system.m_dt < m_tolerance)
 		{
@@ -313,7 +268,6 @@ void btVariationalVertexBlockDescent::solve(btVariationalSystem& system)
 			break;
 		}
 	}
-	// remember the targets for the stabilization of the next step
-	for (int a = 0; a < system.m_attachments.size(); a++) system.m_attachments[a].m_prevTarget = system.m_attachments[a].m_target;
+	btVariationalAugmentedLagrangian::finishStep(system);
 	m_stats.m_energy = system.energy(x);
 }

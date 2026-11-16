@@ -404,6 +404,8 @@ SET(BulletExampleBrowser_SRCS
 	../VariationalDeformableDemo/VertexBlockDescent.h
 	../VariationalDeformableDemo/AugmentedVertexBlockDescent.cpp
 	../VariationalDeformableDemo/AugmentedVertexBlockDescent.h
+	../VariationalDeformableDemo/VariationalCombined.cpp
+	../VariationalDeformableDemo/VariationalCombined.h
 	../ReducedDeformableDemo/ConservationTest.cpp
 	../ReducedDeformableDemo/ConservationTest.h
 	../ReducedDeformableDemo/Springboard.cpp

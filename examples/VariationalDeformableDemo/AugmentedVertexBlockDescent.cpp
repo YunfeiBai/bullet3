@@ -104,7 +104,6 @@ public:
 		createWorld(btVector3(0, -9.8, 0));
 		addGround();
 		m_vbd = new btVariationalVertexBlockDescent();
-		m_vbd->m_alpha = 0.95;
 		m_vbd->m_rayleighDamping = 2e-3;
 		m_integrators.push_back(m_vbd);
 		m_variationalSolver->setIntegrator(m_vbd);
