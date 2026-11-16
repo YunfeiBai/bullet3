@@ -84,11 +84,12 @@ owned by the solver.
 - Hard attachments are enforced by the augmented Lagrangian of paper 8 around the solve: after each
   solve the constraint force moves into the dual variable and, while joints are still open, the
   step is solved again from the current iterate.
-- Two further combinations are implemented but off by default, because they measured slower:
-  preconditioning Newton's linear solves with the prefactorized projective dynamics matrix
-  (`m_useLaplacianPreconditioner`, see the measurements), and a warm start of Newton with a few
-  sweeps of vertex block descent (paper 7; `m_warmStartSweeps`), which saved under ten percent
-  without contact and cost time with contact.
+- Two further combinations are implemented but off by default, because they did not pay off when
+  measured: preconditioning Newton's linear solves with the prefactorized projective dynamics
+  matrix (`m_useLaplacianPreconditioner`, slower, see the measurements), and a warm start of
+  contact-free Newton solves with a few sweeps of vertex block descent (paper 7;
+  `m_warmStartSweeps`), which lowers the Newton iteration count by about a tenth but the time by
+  only a few percent, within the timing noise.
 
 ## Examples
 

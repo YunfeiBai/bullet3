@@ -44,8 +44,8 @@ subject to the following restrictions:
 ///  - Hard attachments: the augmented Lagrangian of Augmented VBD (Giles et al. 2025) wraps the
 ///    solve, so joints close exactly instead of stretching like penalty springs.
 ///  - Optionally a few sweeps of vertex block descent (Chen et al. 2024) warm start a contact-free
-///    Newton solve. This is off by default: it saved under ten percent where it helped and cost time
-///    where contact was active.
+///    Newton solve. This is off by default: it lowers the Newton iteration count by about a tenth,
+///    but the time by only a few percent.
 ///
 ///See the module README for the measurements behind these choices.
 class btVariationalHybrid : public btVariationalIntegrator
