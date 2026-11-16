@@ -21,7 +21,7 @@ btVariationalHybrid::btVariationalHybrid()
 	  m_maxQuasiNewtonIterations(150),
 	  m_quasiNewtonToleranceScale(0.25),
 	  m_useQuasiNewton(true),
-	  m_laplacianMinNodes(600),
+	  m_useLaplacianPreconditioner(false),
 	  m_warmStartSweeps(0),
 	  m_maxConstraintUpdates(3),
 	  m_constraintTolerance(1e-4),
@@ -95,7 +95,7 @@ void btVariationalHybrid::solve(btVariationalSystem& system)
 		continueFromIterate = true;
 	}
 
-	const bool useLaplacian = n >= m_laplacianMinNodes && m_laplacian.update(system);
+	const bool useLaplacian = m_useLaplacianPreconditioner && m_laplacian.update(system);
 	if (useLaplacian)
 	{
 		m_preconditioner.setLaplacian(&m_laplacian);

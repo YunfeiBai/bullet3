@@ -135,6 +135,7 @@ private:
 	mutable btVec3dArray m_boxMin, m_boxMax;
 
 	void buildCandidates(const btVec3d* x, const btVec3d* p, double inflation) const;
+	void buildNodePairLookup() const;
 	///barrier energy of one pair and, for order >= 1 / 2, its gradient / Hessian. Returns false if inactive.
 	bool evaluatePair(const Pair& pair, const btVec3d* x, int order, PairValue& out, int onlySlot = -1) const;
 	///lower bound of the current distance of a local-step candidate, from how far its nodes have moved

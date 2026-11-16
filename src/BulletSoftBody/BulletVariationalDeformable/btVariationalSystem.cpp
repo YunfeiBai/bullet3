@@ -30,6 +30,107 @@ void btVariationalHessian::reset(int numNodes)
 	m_stencils.resize(0);
 	m_nodeBlocks.resize(0);
 	m_nodeBlocks.resize(numNodes);
+	m_rowStart.resize(0);
+	m_columns.resize(0);
+	m_values.resize(0);
+}
+
+void btVariationalHessian::compress(const char* fixed) const
+{
+	const int n = m_nodeBlocks.size();
+	// Room per row: the diagonal block plus one block per stencil entry. Entries of the same node
+	// pair are merged while filling, the unused room is squeezed out at the end.
+	btAlignedObjectArray<int> room, used;
+	room.resize(n + 1, 0);
+	used.resize(n, 0);
+	for (int i = 0; i < n; i++)
+		if (!fixed[i]) room[i + 1] = 1;
+	for (int s = 0; s < m_stencils.size(); s++)
+	{
+		const int* nodes = m_stencils[s].m_n;
+		int count = 0, numFree = 0;
+		for (; count < 4 && nodes[count] >= 0; count++)
+			if (!fixed[nodes[count]]) numFree++;
+		for (int a = 0; a < count; a++)
+			if (!fixed[nodes[a]]) room[nodes[a] + 1] += numFree;
+	}
+	for (int i = 0; i < n; i++) room[i + 1] += room[i];
+	btAlignedObjectArray<int> columns;
+	btAlignedObjectArray<btMat3d> values;
+	columns.resize(room[n]);
+	values.resize(room[n]);
+	for (int i = 0; i < n; i++)
+	{
+		if (fixed[i]) continue;
+		columns[room[i]] = i;  // the diagonal block comes first
+		values[room[i]] = m_nodeBlocks[i];
+		used[i] = 1;
+	}
+	for (int s = 0; s < m_stencils.size(); s++)
+	{
+		const btVariationalHessianStencil& st = m_stencils[s];
+		for (int a = 0; a < 4 && st.m_n[a] >= 0; a++)
+		{
+			const int row = st.m_n[a];
+			if (fixed[row]) continue;
+			const int begin = room[row];
+			for (int b = 0; b < 4 && st.m_n[b] >= 0; b++)
+			{
+				const int column = st.m_n[b];
+				if (fixed[column]) continue;
+				// rows are short (a node has a dozen or two neighbours): a linear search is enough
+				int k = begin;
+				const int end = begin + used[row];
+				while (k < end && columns[k] != column) k++;
+				if (k == end)
+				{
+					columns[k] = column;
+					values[k].setZero();
+					used[row]++;
+				}
+				btMat3d& block = values[k];
+				const double* h = st.m_H.m + 12 * (3 * a) + 3 * b;
+				for (int r = 0; r < 3; r++)
+					for (int c = 0; c < 3; c++) block.m[r][c] += h[12 * r + c];
+			}
+		}
+	}
+	m_rowStart.resize(n + 1);
+	m_rowStart[0] = 0;
+	for (int i = 0; i < n; i++) m_rowStart[i + 1] = m_rowStart[i] + used[i];
+	m_columns.resize(m_rowStart[n]);
+	m_values.resize(m_rowStart[n]);
+	for (int i = 0; i < n; i++)
+		for (int k = 0; k < used[i]; k++)
+		{
+			m_columns[m_rowStart[i] + k] = columns[room[i] + k];
+			m_values[m_rowStart[i] + k] = values[room[i] + k];
+		}
+}
+
+void btVariationalHessian::multiplyCompressed(const btVec3d* x, btVec3d* y) const
+{
+	const int n = m_nodeBlocks.size();
+	btAssert(m_rowStart.size() == n + 1);
+	for (int i = 0; i < n; i++)
+	{
+		const int begin = m_rowStart[i], end = m_rowStart[i + 1];
+		if (begin == end)
+		{
+			y[i] = x[i];  // fixed node (a free node always has its diagonal block)
+			continue;
+		}
+		double y0 = 0, y1 = 0, y2 = 0;
+		for (int k = begin; k < end; k++)
+		{
+			const btMat3d& B = m_values[k];
+			const btVec3d& v = x[m_columns[k]];
+			y0 += B.m[0][0] * v[0] + B.m[0][1] * v[1] + B.m[0][2] * v[2];
+			y1 += B.m[1][0] * v[0] + B.m[1][1] * v[1] + B.m[1][2] * v[2];
+			y2 += B.m[2][0] * v[0] + B.m[2][1] * v[1] + B.m[2][2] * v[2];
+		}
+		y[i] = btVec3d(y0, y1, y2);
+	}
 }
 
 void btVariationalHessian::multiply(const btVec3d* x, btVec3d* y, const char* fixed) const
@@ -103,6 +204,7 @@ int btVariationalConjugateGradient(const btVariationalHessian& H, const btVec3d*
 		bNorm2 += r[i].length2();
 	}
 	if (bNorm2 == 0.0) return 0;
+	H.compress(fixed);
 	const double stop2 = relativeTolerance * relativeTolerance * bNorm2;
 	if (preconditioner)
 		preconditioner->apply(&r[0], &z[0]);
@@ -118,7 +220,7 @@ int btVariationalConjugateGradient(const btVariationalHessian& H, const btVec3d*
 	int it = 0;
 	for (; it < maxIterations; it++)
 	{
-		H.multiply(&p[0], &Ap[0], fixed);
+		H.multiplyCompressed(&p[0], &Ap[0]);
 		double pAp = 0;
 		for (int i = 0; i < numNodes; i++)
 			if (!fixed[i]) pAp += p[i].dot(Ap[i]);

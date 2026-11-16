@@ -31,16 +31,17 @@ subject to the following restrictions:
 ///    Hessians; Smith et al. 2018, Chen et al. 2024).
 ///
 ///The hybrid integrator chooses how to solve each step: projected Newton with a continuous collision
-///detection line search whenever contact is possible, the quasi-Newton method of Liu et al. 2017 on
-///the prefactorized projective dynamics matrix (Bouaziz et al. 2014) for steps without contact or hard
-///joints, and that matrix as a preconditioner for systems of 600 nodes and more. In this scene
-///something always touches, so every step takes the Newton path; the status line shows the path
-///taken, the smallest gap between surfaces (nothing ever interpenetrates) and the joint error.
+///detection line search whenever contact is possible, and the quasi-Newton method of Liu et al. 2017
+///on the prefactorized projective dynamics matrix (Bouaziz et al. 2014) for steps without contact or
+///hard joints. In this scene something always touches, so every step takes the Newton path; the
+///status line shows the path taken, the smallest gap between surfaces (nothing ever interpenetrates)
+///and the joint error.
 ///
 ///The solver slider switches to the individual methods on the same scene for comparison:
 ///0 hybrid, 1 projected Newton alone (the joints are then mere springs and stretch), 2 vertex block
-///descent with augmented Lagrangian joints (20 sweeps per step, far from converged at this stiffness),
-///3 quasi-Newton alone (the barrier is poorly modelled by its constant matrix: many iterations).
+///descent with augmented Lagrangian joints (20 sweeps per step: the cheapest, not converged and
+///therefore a little softer), 3 quasi-Newton alone (the barrier is poorly modelled by its constant
+///matrix: many iterations).
 static btScalar gCombinedSolver = 0;
 
 class VariationalCombined : public VariationalDemoBase

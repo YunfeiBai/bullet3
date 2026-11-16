@@ -241,7 +241,13 @@ void btVariationalIPC::buildCandidates(const btVec3d* x, const btVec3d* p, doubl
 					}
 		}
 	}
+	buildNodePairLookup();
+}
+
+void btVariationalIPC::buildNodePairLookup() const
+{
 	// node -> pairs, encoded as 4 * pair + slot
+	const int n = m_system->numNodes();
 	m_nodePairStart.resize(0);
 	m_nodePairStart.resize(n + 1, 0);
 	for (int q = 0; q < m_pairs.size(); q++)
@@ -663,11 +669,23 @@ double btVariationalIPC::prepareLocalSteps(const btVec3d* x, double radius, cons
 	m_reference.resize(n);
 	for (int i = 0; i < n; i++) m_reference[i] = x[i];
 	buildCandidates(x, 0, 0.5 * m_dhatActive + radius);
+	// The broad phase compares boxes. Within the trust region no node moves further than the radius
+	// from its reference position, so two primitives approach each other by at most twice the radius:
+	// pairs that are further apart than that plus the activation distance can neither become active
+	// nor limit a step, and are dropped. For bodies in fast motion this removes most of the candidates.
+	const double reach = m_dhatActive + 2.0 * radius;
+	int kept = 0;
 	for (int q = 0; q < m_pairs.size(); q++)
 	{
-		Pair& pair = m_pairs[q];
+		Pair pair = m_pairs[q];
 		const btVec3d xs[4] = {x[pair.m_n[0]], x[pair.m_n[1]], x[pair.m_n[2]], x[pair.m_n[3]]};
 		pair.m_refDistance = sqrt(pair.m_edgeEdge ? btEdgeEdgeDistanceSquared(xs) : btPointTriangleDistanceSquared(xs));
+		if (pair.m_refDistance < reach) m_pairs[kept++] = pair;
+	}
+	if (kept != m_pairs.size())
+	{
+		m_pairs.resize(kept);
+		buildNodePairLookup();
 	}
 	return radius;
 }

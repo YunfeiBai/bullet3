@@ -27,6 +27,11 @@ subject to the following restrictions:
 ///
 ///   compares the two eigenvalue filters of projected Newton (clamp negative eigenvalues to zero, or
 ///   take their absolute value) on a start with a large volume change and on a boundary-driven twist.
+///
+///   usage: Benchmark_btVariationalDeformable preconditioners
+///
+///   Newton with block Jacobi against Newton with the projective dynamics matrix as additional
+///   preconditioner, on the twist and pile scenes over a range of mesh sizes.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -280,6 +285,39 @@ static void compareFilters()
 	}
 }
 
+// Newton's linear solves with block Jacobi alone and with the prefactorized projective dynamics matrix on top
+static void comparePreconditioners()
+{
+	for (int kind = SCENE_TWIST; kind <= SCENE_PILE; kind++)
+		for (int resolution = 2; resolution <= (kind == SCENE_TWIST ? 7 : 5); resolution++)
+			for (int laplacian = 0; laplacian < 2; laplacian++)
+			{
+				Scene scene(kind, resolution);
+				btVariationalHybrid hybrid;
+				hybrid.m_tolerance = 1e-2;
+				hybrid.m_useQuasiNewton = false;
+				hybrid.m_useLaplacianPreconditioner = laplacian == 1;
+				const int steps = kind == SCENE_TWIST ? 120 : 150;
+				double milliseconds = 0;
+				int iterations = 0, linearIterations = 0;
+				for (int s = 0; s < steps; s++)
+				{
+					scene.drive();
+					scene.m_sys.beginStep(1.0 / 60.0);
+					btClock clock;
+					hybrid.solve(scene.m_sys);
+					milliseconds += clock.getTimeMicroseconds() * 1e-3;
+					scene.m_sys.endStep();
+					iterations += hybrid.m_stats.m_iterations;
+					linearIterations += hybrid.m_stats.m_linearIterations;
+				}
+				printf("%s %5d nodes, %-24s: %7.1f ms/step, %4.1f Newton iterations/step, %5.1f conjugate gradient iterations per Newton iteration\n",
+					   kind == SCENE_TWIST ? "twist" : "pile ", scene.m_sys.numNodes(), laplacian ? "Laplacian + block Jacobi" : "block Jacobi", milliseconds / steps,
+					   double(iterations) / steps, double(linearIterations) / (iterations > 0 ? iterations : 1));
+				fflush(stdout);
+			}
+}
+
 int main(int argc, char** argv)
 {
 	gWorldInfo.m_sparsesdf.Initialize();
@@ -288,15 +326,21 @@ int main(int argc, char** argv)
 		compareFilters();
 		return 0;
 	}
+	if (argc > 1 && argv[1][0] == 'p')
+	{
+		comparePreconditioners();
+		return 0;
+	}
 	const int resolution = argc > 1 ? atoi(argv[1]) : 2;
 	const double tolerance = argc > 2 ? atof(argv[2]) : 1e-2;
 	const char* sceneNames[NUM_SCENES] = {"twist", "pile ", "chain"};
 	const int numSteps[NUM_SCENES] = {120, 150, 300};
-	const char* solverNames[6] = {"Newton", "quasi-Newton (L-BFGS)", "VBD, 20 sweeps", "VBD, 100 sweeps", "Hybrid", "Hybrid, fast path off"};
+	const int numSolvers = 7;
+	const char* solverNames[numSolvers] = {"Newton", "quasi-Newton (L-BFGS)", "VBD, 20 sweeps", "VBD, 100 sweeps", "Hybrid", "Hybrid, fast path off", "  + Laplacian preconditioner"};
 	printf("resolution %d, Newton tolerance %g m/s, time step 1/60 s\n", resolution, tolerance);
 	for (int kind = 0; kind < NUM_SCENES; kind++)
 	{
-		for (int solver = 0; solver < 6; solver++)
+		for (int solver = 0; solver < numSolvers; solver++)
 		{
 			Scene scene(kind, resolution);
 			btVariationalProjectedNewton newton;
@@ -311,7 +355,8 @@ int main(int argc, char** argv)
 			btVariationalHybrid hybrid;
 			hybrid.m_tolerance = tolerance;
 			hybrid.m_useQuasiNewton = solver == 4;
-			btVariationalIntegrator* integrators[6] = {&newton, &quasiNewton, &vbd, &vbd, &hybrid, &hybrid};
+			hybrid.m_useLaplacianPreconditioner = solver == 6;
+			btVariationalIntegrator* integrators[numSolvers] = {&newton, &quasiNewton, &vbd, &vbd, &hybrid, &hybrid, &hybrid};
 			btVariationalIntegrator* integrator = integrators[solver];
 
 			int iterations = 0, unconverged = 0, intersectingSteps = 0, paths[5] = {0, 0, 0, 0, 0};
@@ -339,7 +384,7 @@ int main(int argc, char** argv)
 				if (!integrator->m_stats.m_converged) unconverged++;
 				if (solver >= 4) paths[hybrid.lastPath()]++;
 			}
-			printf("%s %5d nodes  %-22s: %7.1f ms/step, %6.1f iterations/step, mean residual %.2e", sceneNames[kind], scene.m_sys.numNodes(), solverNames[solver],
+			printf("%s %5d nodes  %-28s: %7.1f ms/step, %6.1f iterations/step, mean residual %.2e", sceneNames[kind], scene.m_sys.numNodes(), solverNames[solver],
 				   milliseconds / numSteps[kind], double(iterations) / numSteps[kind], residualSum / numSteps[kind]);
 			if (kind == SCENE_PILE)
 			{

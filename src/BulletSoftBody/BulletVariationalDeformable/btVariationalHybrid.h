@@ -31,15 +31,16 @@ subject to the following restrictions:
 ///  - Contact: the barrier, continuous collision detection and lagged friction of Incremental
 ///    Potential Contact (Li et al. 2020), if the system has a contact model. Every step is
 ///    intersection free.
-///  - Linear solves: conjugate gradients preconditioned by the prefactorized Laplacian of projective
-///    dynamics together with block Jacobi (Liu et al. 2013, Bouaziz et al. 2014; see
-///    btVariationalLaplacianPreconditioner). On meshes beyond a few hundred nodes this roughly halves
-///    the conjugate gradient iterations; on small systems it does not pay and block Jacobi alone
-///    is used.
 ///  - Contact-free steps: when no node can reach a collider or another surface during the step, the
-///    quasi-Newton method of Liu, Bouaziz, Kavan 2017 (L-BFGS on the same Laplacian) solves the step
-///    without assembling any Hessian, several times faster than Newton. If it does not converge
-///    within its budget, Newton takes over from where it stopped.
+///    quasi-Newton method of Liu, Bouaziz, Kavan 2017 (L-BFGS on the prefactorized matrix of
+///    projective dynamics; Liu et al. 2013, Bouaziz et al. 2014) solves the step without assembling
+///    any Hessian, about twice as fast as Newton. If it does not converge within its budget, Newton
+///    takes over from where it stopped.
+///  - Optionally the same prefactorized matrix, together with block Jacobi, preconditions the
+///    conjugate gradient solves inside Newton (btVariationalLaplacianPreconditioner). This is off by
+///    default: it halves the number of conjugate gradient iterations on a contact-free bar, but a
+///    pair of sparse triangular solves costs more than the products it saves, and the step came out
+///    15 to 25 percent slower at every size measured (272 to 4617 nodes).
 ///  - Hard attachments: the augmented Lagrangian of Augmented VBD (Giles et al. 2025) wraps the
 ///    solve, so joints close exactly instead of stretching like penalty springs.
 ///  - Optionally a few sweeps of vertex block descent (Chen et al. 2024) warm start a contact-free
@@ -64,7 +65,7 @@ public:
 	int m_maxQuasiNewtonIterations;     // budget of the contact-free fast path
 	double m_quasiNewtonToleranceScale;  // the fast path uses m_tolerance times this (its step is measured in a stiffer metric)
 	bool m_useQuasiNewton;              // enable the contact-free fast path
-	int m_laplacianMinNodes;            // use the Laplacian preconditioner from this system size on
+	bool m_useLaplacianPreconditioner;  // precondition Newton's linear solves with the projective dynamics matrix
 	int m_warmStartSweeps;              // vertex block descent sweeps before a contact-free Newton solve
 	int m_maxConstraintUpdates;         // augmented Lagrangian updates (re-solves) per step
 	double m_constraintTolerance;       // [m] stop updating once the hard attachments are this accurate

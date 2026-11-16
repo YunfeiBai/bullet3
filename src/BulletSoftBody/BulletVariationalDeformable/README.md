@@ -33,7 +33,7 @@ vertex block descent, the dual update of the augmented Lagrangian); no code was 
 | File | Contents |
 |------|----------|
 | `btVariationalDeformableSolver` | `btDeformableBodySolver` subclass: collects soft bodies, colliders, attachments and mouse picking from the Bullet world, runs one optimization step per time step, writes the result back |
-| `btVariationalSystem` | The incremental potential: energy, gradient, Hessian (per-element stencils), per-vertex force and 3x3 block, step size limits. Rigid colliders as signed distance functions with penalty or barrier contact and lagged friction |
+| `btVariationalSystem` | The incremental potential: energy, gradient, Hessian (per-element stencils, merged into a block sparse matrix for the conjugate gradient solver), per-vertex force and 3x3 block, step size limits. Rigid colliders as signed distance functions with penalty or barrier contact and lagged friction |
 | `btVariationalElasticity` | Materials: Stable Neo-Hookean with its analytic eigen-system, and as-rigid-as-possible (the projective dynamics strain energy) |
 | `btVariationalProjectedNewton` | Newton with eigenvalue-filtered Hessians (clamp or absolute value), preconditioned conjugate gradients and a line search that starts at the largest intersection-free step |
 | `btVariationalProjectiveDynamics` | Local/global solver with a prefactorized system matrix |
@@ -81,14 +81,14 @@ owned by the solver.
 - A step without any possible contact and without hard attachments goes to L-BFGS on the
   prefactorized matrix (papers 2, 3): no Hessian is assembled. If it runs out of its iteration
   budget, Newton continues from where it stopped.
-- From 600 nodes on, the conjugate gradient solves inside Newton are preconditioned with the
-  prefactorized projective dynamics matrix, combined with block Jacobi for the nodes whose stiffness
-  that matrix does not know about (contact, joints).
 - Hard attachments are enforced by the augmented Lagrangian of paper 8 around the solve: after each
   solve the constraint force moves into the dual variable and, while joints are still open, the
   step is solved again from the current iterate.
-- A warm start with a few sweeps of vertex block descent (paper 7) is available but off by default:
-  it saved under ten percent without contact and cost time with contact.
+- Two further combinations are implemented but off by default, because they measured slower:
+  preconditioning Newton's linear solves with the prefactorized projective dynamics matrix
+  (`m_useLaplacianPreconditioner`, see the measurements), and a warm start of Newton with a few
+  sweeps of vertex block descent (paper 7; `m_warmStartSweeps`), which saved under ten percent
+  without contact and cost time with contact.
 
 ## Examples
 
@@ -141,22 +141,24 @@ Newton tolerance 0.01 m/s, one thread of a shared 4-core virtual machine (timing
 
 | ms per step | 272 nodes | 1188 nodes | Mean residual at 1188 nodes |
 |-------------|----------:|-----------:|----------------------------:|
-| Newton | 18.7 | 222.6 | 13 N |
-| Quasi-Newton (L-BFGS) | 6.0 | 41.4 | 3.8 N |
-| Vertex block descent, 20 sweeps | 3.7 | 22.2 | 1300 N |
-| Vertex block descent, 100 sweeps | 16.2 | 98.6 | 250 N |
-| Hybrid (takes the quasi-Newton path) | 5.8 | 40.7 | 3.8 N |
-| Hybrid without the fast path (Newton, Laplacian preconditioner from 600 nodes) | 20.2 | 166.2 | 10 N |
+| Newton | 13.7 | 101.0 | 13 N |
+| Quasi-Newton (L-BFGS) | 6.1 | 42.3 | 3.8 N |
+| Vertex block descent, 20 sweeps | 4.4 | 21.6 | 1300 N |
+| Vertex block descent, 100 sweeps | 18.1 | 105.8 | 250 N |
+| Hybrid (takes the quasi-Newton path) | 6.1 | 40.3 | 3.8 N |
+| Hybrid without the fast path (Newton) | 13.8 | 97.4 | 15 N |
+| ... with the Laplacian preconditioner switched on | 15.6 | 111.2 | 10 N |
 
 **Pile of four cubes dropped on each other, barrier contact with friction**
 
 | ms per step | 256 nodes | 864 nodes | Outcome |
 |-------------|----------:|----------:|---------|
-| Newton | 10.9 | 64.1 | pile stands, 1.5 to 1.7 iterations per step |
-| Quasi-Newton (L-BFGS) | 132.1 | 545.9 | pile stands, 87 to 114 iterations per step |
-| Vertex block descent, 20 sweeps | 20.7 | 167.8 | pile slumps to the ground |
-| Vertex block descent, 100 sweeps | 104.2 | 337.4 | stands at 256 nodes, slumps at 864 |
-| Hybrid (takes the Newton path once contact is possible) | 11.4 | 60.5 | pile stands |
+| Newton | 8.1 | 35.6 | pile stands, 1.5 to 1.7 iterations per step |
+| Quasi-Newton (L-BFGS) | 135.1 | 518.3 | pile stands, 87 to 114 iterations per step |
+| Vertex block descent, 20 sweeps | 14.2 | 48.0 | pile slumps to the ground |
+| Vertex block descent, 100 sweeps | 79.1 | 229.2 | stands at 256 nodes, slumps at 864 |
+| Hybrid (takes the Newton path once contact is possible) | 7.8 | 33.8 | pile stands |
+| ... with the Laplacian preconditioner switched on | 9.0 | 39.1 | pile stands |
 
 No step of any run had an intersection.
 
@@ -164,32 +166,49 @@ No step of any run had an intersection.
 
 | | ms per step | Largest joint error |
 |-|------------:|--------------------:|
-| Newton, attachments as springs | 2.5 | 103 mm |
+| Newton, attachments as springs | 1.6 | 103 mm |
 | Quasi-Newton, attachments as springs | 0.2 | 103 mm |
 | Augmented vertex block descent, 20 sweeps | 1.1 | 1.1 mm |
-| Augmented vertex block descent, 100 sweeps | 5.5 | 0.08 mm |
-| Hybrid (Newton inside the augmented Lagrangian) | 3.7 | 0.34 mm (0.12 mm at the end) |
+| Augmented vertex block descent, 100 sweeps | 5.6 | 0.08 mm |
+| Hybrid (Newton inside the augmented Lagrangian) | 2.9 | 0.34 mm (0.12 mm at the end) |
 
 What the numbers say:
 
 - No method wins everywhere, which is the reason for the hybrid integrator.
 - Without contact the constant matrix of projective dynamics is a good model of the Hessian:
-  L-BFGS on it is 3 to 5 times faster than Newton at the same tolerance. With barrier contact the
-  same method is about ten times slower than Newton, because the matrix knows nothing about the
-  barrier.
-- Vertex block descent is the cheapest per step and never blows up or intersects, but a fixed
-  number of sweeps is far from converged on stiff materials, and further the finer the mesh: with
-  20 sweeps the residual is two orders of magnitude above Newton's, and stacked bodies sag under
-  their own weight until the pile is flat.
+  L-BFGS on it is a little more than twice as fast as Newton at the same tolerance. With barrier
+  contact the same method is about fifteen times slower than Newton, because the matrix knows
+  nothing about the barrier.
+- Vertex block descent with 20 sweeps is the cheapest method on the bar and never blows up or
+  intersects, but a fixed number of sweeps is far from converged on stiff materials, and further
+  the finer the mesh: with 20 sweeps the residual is two orders of magnitude above Newton's, and
+  stacked bodies sag under their own weight until the pile is flat.
 - Newton is the one method that takes barrier contact in its stride.
 - For hard joints the augmented Lagrangian is what matters: with it the error drops from 10 cm
   to a fraction of a millimetre, whether the inner solver is vertex block descent or Newton. On
-  this small scene augmented vertex block descent is the better deal: a third of the cost at 1 mm,
-  or four times the accuracy at one and a half times the cost. The hybrid pays for full Newton
-  solves.
-- The Laplacian preconditioner cuts a quarter off the Newton time on the 1188 node bar. On the 864
-  node pile the gain (6 %) is within the timing noise, and forced on for the 529 node combined
-  example it made the step 10 % slower, hence the size threshold.
+  this small scene the two are comparable: augmented vertex block descent reaches 1 mm at 40 % of
+  the hybrid's cost, or a quarter of its error at twice the cost.
+- Preconditioning Newton's linear solves with the projective dynamics matrix does not pay off.
+  `Benchmark_btVariationalDeformable preconditioners` repeats the comparison over mesh sizes: on
+  the bar the conjugate gradient iterations halve (from 71 to 31 per Newton iteration at 4617
+  nodes), but a pair of sparse triangular solves costs more than the products it saves, and the
+  step is 15 to 25 % slower at every size from 272 to 4617 nodes. On the pile, where the stiffness
+  is in the contact, the iteration count changes little and the step is 6 to 34 % slower. The
+  option is therefore off by default.
+
+**The combined example** (529 nodes, the first 421 steps, which include the impact of the wrecking
+ball; the solver is chosen with the slider of the example)
+
+| | ms per step | Largest joint error |
+|-|------------:|--------------------:|
+| Hybrid | 57 | 0.18 mm |
+| Newton alone, joints as springs | 43 | 21 mm |
+| Vertex block descent with the augmented Lagrangian, 20 sweeps | 29 | 0.71 mm |
+| Quasi-Newton alone, joints as springs | 223 | 21 mm |
+
+No mode produced an intersection. On these coarse bodies (27 nodes per cube) 20 sweeps of vertex
+block descent are enough for the tower to stand, 1.5 mm lower than with the hybrid; the price of the
+hybrid's tighter joints and converged steps is twice the time.
 
 **Eigenvalue filters of projected Newton** (`Benchmark_btVariationalDeformable filters`)
 
@@ -240,8 +259,8 @@ helped both. The defaults are therefore clamping with the exact Hessian tried fi
   above).
 - Everything is single threaded, apart from the optional `btParallelFor` over the vertices of a
   color in vertex block descent. The combined example (529 nodes, up to several hundred active
-  contact pairs) takes roughly 50 to 150 ms per step on the machine the measurements were made on,
-  so it does not run in real time there.
+  contact pairs) takes roughly 40 to 90 ms per step with the hybrid integrator on the machine the
+  measurements were made on, so it does not run in real time there.
 - The solver is reachable from C++ only; it is not wired into the physics server or pybullet, and
   it has no serialization.
 - `btSoftBody` features outside nodes, links, tetrahedra and faces (anchors, clusters, pose

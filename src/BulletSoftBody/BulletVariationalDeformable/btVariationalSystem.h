@@ -133,6 +133,10 @@ struct btVariationalHessianStencil
 
 class btVariationalHessian
 {
+	// block sparse form of the matrix, see compress()
+	mutable btAlignedObjectArray<int> m_rowStart, m_columns;
+	mutable btAlignedObjectArray<btMat3d> m_values;
+
 public:
 	btAlignedObjectArray<btVariationalHessianStencil> m_stencils;
 	btAlignedObjectArray<btMat3d> m_nodeBlocks;
@@ -142,6 +146,14 @@ public:
 	void multiply(const btVec3d* x, btVec3d* y, const char* fixed) const;
 	///3x3 diagonal blocks, used by the block Jacobi preconditioner
 	void diagonalBlocks(btMat3d* D) const;
+
+	///Merges the stencils into a block sparse matrix with one 3x3 block per pair of coupled nodes.
+	///Overlapping stencils share most of their node pairs, so the merged matrix is several times
+	///smaller than the stencil list, and multiplyCompressed() correspondingly faster than multiply()
+	///with the same result. Call it again whenever the stencils or node blocks have changed.
+	void compress(const char* fixed) const;
+	void multiplyCompressed(const btVec3d* x, btVec3d* y) const;
+	int numCompressedBlocks() const { return m_columns.size(); }
 };
 
 ///Preconditioner interface for the conjugate gradient solver, z = M^-1 r
@@ -154,7 +166,7 @@ public:
 	virtual void apply(const btVec3d* r, btVec3d* z) const = 0;
 };
 
-///Conjugate gradients on the element-by-element Hessian. Returns the number of iterations.
+///Conjugate gradients on the Hessian (in its compressed form). Returns the number of iterations.
 ///If the matrix turns out not to be positive definite along a search direction the iteration stops
 ///with the iterate reached so far and *indefinite is set.
 int btVariationalConjugateGradient(const btVariationalHessian& H, const btVec3d* b, btVec3d* x, const char* fixed, int numNodes,

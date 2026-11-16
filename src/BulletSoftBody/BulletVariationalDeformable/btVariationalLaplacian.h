@@ -89,6 +89,11 @@ public:
 ///solves and without ever being refactorized. The mask P switches the global correction off for nodes
 ///whose actual stiffness is far above what the Laplacian knows about (active contact barriers, hard
 ///attachments); those are left to the block Jacobi part, which sees the true diagonal.
+///
+///Measured (see the module README): the number of conjugate gradient iterations roughly halves on
+///contact-free solids, but with the block sparse matrix-vector product the triangular solves cost
+///more than the products they save, so the solve as a whole came out slower than with block Jacobi
+///alone on meshes of up to a few thousand nodes. It is an option, not a default.
 class btVariationalLaplacianPreconditioner : public btVariationalPreconditioner
 {
 	const btVariationalLaplacian* m_laplacian;

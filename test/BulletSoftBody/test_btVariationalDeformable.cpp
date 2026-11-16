@@ -189,6 +189,7 @@ double maxAttachmentError(const btVariationalSystem& sys)
 struct DerivativeErrors
 {
 	double m_gradient, m_hessian, m_vertexForce;
+	double m_compressed;  // block sparse form of the Hessian against its stencil form
 	int m_indefiniteBlocks;
 };
 
@@ -240,6 +241,17 @@ DerivativeErrors checkDerivatives(btVariationalSystem& sys, double perturbation,
 		if (!sys.m_fixed[i]) hscale = btMax(hscale, Hv[i].maxAbs());
 	for (int i = 0; i < n; i++)
 		if (!sys.m_fixed[i]) e.m_hessian = btMax(e.m_hessian, ((gp[i] - gm[i]) * (1.0 / (2 * h)) - Hv[i]).maxAbs() / hscale);
+	// the matrix the conjugate gradient solver works with: same product, fixed nodes included
+	btVec3dArray w, Hw, Hc;
+	w.resize(n);
+	Hw.resize(n);
+	Hc.resize(n);
+	for (int i = 0; i < n; i++) w[i] = rng.vec();
+	H.multiply(&w[0], &Hw[0], &sys.m_fixed[0]);
+	H.compress(&sys.m_fixed[0]);
+	H.multiplyCompressed(&w[0], &Hc[0]);
+	e.m_compressed = 0;
+	for (int i = 0; i < n; i++) e.m_compressed = btMax(e.m_compressed, (Hw[i] - Hc[i]).maxAbs() / hscale);
 	e.m_vertexForce = 0;
 	e.m_indefiniteBlocks = 0;
 	for (int i = 0; i < n; i++)
@@ -755,6 +767,7 @@ GTEST_TEST(VariationalSystem, DerivativesOfTheIncrementalPotential)
 			const DerivativeErrors e = checkDerivatives(sys, large ? 0.12 : 0.01, rng);
 			EXPECT_LT(e.m_gradient, 1e-5) << "variant " << variant;
 			EXPECT_LT(e.m_hessian, 1e-5) << "variant " << variant;
+			EXPECT_LT(e.m_compressed, 1e-12) << "variant " << variant;
 			EXPECT_LT(e.m_vertexForce, 1e-9) << "variant " << variant;
 			EXPECT_EQ(0, e.m_indefiniteBlocks) << "variant " << variant;
 		}
@@ -792,6 +805,7 @@ GTEST_TEST(VariationalSystem, CurvedColliderGradients)
 	sys.beginStep(kDt);
 	const DerivativeErrors e = checkDerivatives(sys, 0.01, rng);
 	EXPECT_LT(e.m_gradient, 1e-5);
+	EXPECT_LT(e.m_compressed, 1e-12);
 	EXPECT_LT(e.m_vertexForce, 1e-9);
 	EXPECT_EQ(0, e.m_indefiniteBlocks);
 	delete psb;
@@ -1387,16 +1401,26 @@ GTEST_TEST(VariationalIPC, BarrierDerivatives)
 	for (int i = 0; i < n; i++) hscale = btMax(hscale, Hv[i].maxAbs());
 	for (int i = 0; i < n; i++) worstHessian = btMax(worstHessian, ((gp[i] - gm[i]) * (1.0 / (2 * h)) - Hv[i]).maxAbs() / hscale);
 	EXPECT_LT(worstHessian, 1e-5);
-	// the filtered Hessian is positive definite along random directions
+	// the filtered Hessian is positive definite along random directions, and its block sparse form
+	// (many contact stencils overlap) gives the same products
 	btVariationalHessian filtered;
 	sys.hessian(&x[0], filtered, BT_VARIATIONAL_FILTER_CLAMP);
+	filtered.compress(&sys.m_fixed[0]);
+	EXPECT_LT(filtered.numCompressedBlocks(), 16 * filtered.m_stencils.size());
 	for (int k = 0; k < 30; k++)
 	{
 		for (int i = 0; i < n; i++) v[i] = rng.vec();
 		filtered.multiply(&v[0], &Hv[0], &sys.m_fixed[0]);
-		double quadratic = 0;
-		for (int i = 0; i < n; i++) quadratic += v[i].dot(Hv[i]);
+		filtered.multiplyCompressed(&v[0], &gp[0]);
+		double quadratic = 0, scale = 1e-12, difference = 0;
+		for (int i = 0; i < n; i++)
+		{
+			quadratic += v[i].dot(Hv[i]);
+			scale = btMax(scale, Hv[i].maxAbs());
+			difference = btMax(difference, (Hv[i] - gp[i]).maxAbs());
+		}
 		EXPECT_GT(quadratic, 0.0);
+		EXPECT_LT(difference, 1e-12 * scale);
 	}
 	sys.m_contact = 0;
 	delete a;
@@ -1542,6 +1566,14 @@ GTEST_TEST(VariationalHybrid, TakesTheQuasiNewtonPathWithoutContact)
 	runFromRest(sys, hybrid, 10, solution);
 	EXPECT_EQ(btVariationalHybrid::PATH_NEWTON, hybrid.lastPath());
 	EXPECT_LT(maxDifference(reference, solution), 1e-4);
+	const int plainIterations = hybrid.m_stats.m_linearIterations;
+	// ... optionally with the projective dynamics matrix as preconditioner, which needs fewer
+	// conjugate gradient iterations for the same result
+	hybrid.m_useLaplacianPreconditioner = true;
+	runFromRest(sys, hybrid, 10, solution);
+	EXPECT_EQ(btVariationalHybrid::PATH_NEWTON_LAPLACIAN, hybrid.lastPath());
+	EXPECT_LT(maxDifference(reference, solution), 1e-4);
+	EXPECT_LT(hybrid.m_stats.m_linearIterations, plainIterations);
 	delete psb;
 }
 

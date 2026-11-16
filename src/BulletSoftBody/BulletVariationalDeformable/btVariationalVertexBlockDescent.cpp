@@ -230,14 +230,19 @@ void btVariationalVertexBlockDescent::solve(btVariationalSystem& system)
 	// are collected for a ball around each vertex, and no vertex may leave its ball during the sweep.
 	// The candidates are rebuilt only when the vertices have used up half of their ball.
 	// The ball starts small (the contact model enlarges it to a multiple of its activation distance)
-	// and grows only if the vertices actually need the room.
-	double radius = 0, travelled = 0;
+	// and grows only if the vertices actually need the room, up to a limit: the number of candidates
+	// rises steeply with the radius, and in the step of an impact an unlimited ball made single
+	// steps twenty times more expensive than the rest. A vertex that needs to go further simply gets
+	// there over several rebuilds.
+	const double maxGrowth = 4.0;
+	double radius = 0, travelled = 0, smallestRadius = 0;
 	bool rebuild = true;
 	for (int iter = 0; iter < m_iterations; iter++)
 	{
 		if (system.m_contact && rebuild)
 		{
 			radius = system.m_contact->prepareLocalSteps(x, radius);
+			if (smallestRadius == 0.0) smallestRadius = radius;
 			travelled = 0;
 			rebuild = false;
 		}
@@ -245,7 +250,7 @@ void btVariationalVertexBlockDescent::solve(btVariationalSystem& system)
 		travelled += change;
 		if (travelled > 0.5 * radius)
 		{
-			radius = 2.0 * travelled;
+			radius = btMin(2.0 * travelled, maxGrowth * smallestRadius);
 			rebuild = true;
 		}
 		m_stats.m_iterations++;
