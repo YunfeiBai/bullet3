@@ -390,6 +390,9 @@ SET(BulletExampleBrowser_SRCS
   ../MultiBody/MultiDofDemo.h
   ../RigidBody/RigidBodySoftContact.cpp
   ../RigidBody/KinematicRigidBodyExample.cpp
+	../VariationalDeformableDemo/VariationalDemoBase.h
+	../VariationalDeformableDemo/StableNeoHookean.cpp
+	../VariationalDeformableDemo/StableNeoHookean.h
 	../ReducedDeformableDemo/ConservationTest.cpp
 	../ReducedDeformableDemo/ConservationTest.h
 	../ReducedDeformableDemo/Springboard.cpp

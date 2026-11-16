@@ -183,6 +183,7 @@ project "App_BulletExampleBrowser"
 		"../SoftDemo/*",
 		"../DeformableDemo/*",
                 "../ReducedDeformableDemo/*",
+                "../VariationalDeformableDemo/*",
 		"../RollingFrictionDemo/*",
 		"../rbdl/*",
 		"../FractureDemo/*",

@@ -29,6 +29,13 @@ SET(BulletSoftBody_SRCS
 	BulletReducedDeformableBody/btReducedDeformableBodyHelpers.cpp
 	BulletReducedDeformableBody/btReducedDeformableBodySolver.cpp
 	BulletReducedDeformableBody/btReducedDeformableContactConstraint.cpp
+
+	BulletVariationalDeformable/btVariationalElasticity.cpp
+	BulletVariationalDeformable/btVariationalSparse.cpp
+	BulletVariationalDeformable/btVariationalSystem.cpp
+	BulletVariationalDeformable/btVariationalHelpers.cpp
+	BulletVariationalDeformable/btVariationalProjectedNewton.cpp
+	BulletVariationalDeformable/btVariationalDeformableSolver.cpp
 )
 
 
@@ -73,6 +80,15 @@ SET(BulletSoftBody_HDRS
 	BulletReducedDeformableBody/btReducedDeformableBodyHelpers.h
 	BulletReducedDeformableBody/btReducedDeformableBodySolver.h
 	BulletReducedDeformableBody/btReducedDeformableContactConstraint.h
+
+	BulletVariationalDeformable/btVariationalMath.h
+	BulletVariationalDeformable/btVariationalElasticity.h
+	BulletVariationalDeformable/btVariationalSparse.h
+	BulletVariationalDeformable/btVariationalSystem.h
+	BulletVariationalDeformable/btVariationalHelpers.h
+	BulletVariationalDeformable/btVariationalIntegrator.h
+	BulletVariationalDeformable/btVariationalProjectedNewton.h
+	BulletVariationalDeformable/btVariationalDeformableSolver.h
 )
 
 

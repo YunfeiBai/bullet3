@@ -148,6 +148,10 @@ public:
 		}
 	}
 
+	const btSoftBody::Face& getFace() const { return m_face; }
+	const btVector3& getMousePos() const { return m_mouse_pos; }
+	btScalar getElasticStiffness() const { return m_elasticStiffness; }
+
 	void setMousePos(const btVector3& p)
 	{
 		m_mouse_pos = p;

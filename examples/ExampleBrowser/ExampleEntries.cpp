@@ -73,6 +73,7 @@
 #include "../RoboticsLearning/R2D2GraspExample.h"
 #include "../RoboticsLearning/KukaGraspExample.h"
 #include "../RoboticsLearning/GripperGraspExample.h"
+#include "../VariationalDeformableDemo/StableNeoHookean.h"
 #include "../ReducedDeformableDemo/ConservationTest.h"
 #include "../ReducedDeformableDemo/ModeVisualizer.h"
 #include "../ReducedDeformableDemo/Springboard.h"
@@ -237,6 +238,9 @@ static ExampleEntry gDefaultExamples[] =
 		ExampleEntry(1, "Reduced Friction Slope", "Grasp a reduced deformable block", FrictionSlopeCreateFunc),
 		ExampleEntry(1, "Reduced Benchmark", "Reduced deformable performance benchmark example", ReducedBenchmarkCreateFunc),
 		// ExampleEntry(1, "Simple Reduced Deformable Test", "Simple dynamics test for the reduced deformable objects", ReducedBasicTestCreateFunc),
+
+		ExampleEntry(0, "Variational Deformable Body"),
+		ExampleEntry(1, "Stable Neo-Hookean", "Stable Neo-Hookean Flesh Simulation (Smith et al. 2018) with projected Newton and the eigenvalue filters of Chen et al. 2024: a twisted bar, a cube squashed flat and a cube with scrambled nodes all recover.", VariationalStableNeoHookeanCreateFunc),
         
 #ifdef INCLUDE_CLOTH_DEMOS
 		ExampleEntry(0, "Soft Body"),
