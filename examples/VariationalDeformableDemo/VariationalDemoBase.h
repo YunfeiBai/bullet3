@@ -27,6 +27,7 @@ subject to the following restrictions:
 #include "../CommonInterfaces/CommonParameterInterface.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 ///Shared scaffolding of the variational deformable demos: a btDeformableMultiBodyDynamicsWorld driven by
 ///btVariationalDeformableSolver, helpers to add static geometry and soft bodies, and an on-screen line
@@ -157,7 +158,7 @@ public:
 	{
 		(void)deltaTime;
 		// one implicit step per frame
-		m_variationalSolver->getIntegrator()->m_verbose = m_logToConsole && getenv("BT_VARIATIONAL_DEMO_VERBOSE") != 0 && (m_stepCount % 60) == 59;
+		m_variationalSolver->getIntegrator()->m_verbose = m_logToConsole && getenv("BT_VARIATIONAL_DEMO_VERBOSE") != 0 && (m_stepCount % 20) == 19;
 		m_dynamicsWorld->stepSimulation(m_fixedTimeStep, 0, m_fixedTimeStep);
 		updateStatus();
 		m_stepCount++;

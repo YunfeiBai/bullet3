@@ -137,6 +137,7 @@ void btVariationalDeformableSolver::rebuildIfNeeded()
 		at.m_nodeA = bodyA >= 0 ? m_system.m_bodies[bodyA].m_firstNode + src.m_nodeA : -1;
 		at.m_nodeB = bodyB >= 0 ? m_system.m_bodies[bodyB].m_firstNode + src.m_nodeB : -1;
 		at.m_target = btVec3d(src.m_target);
+		at.m_prevTarget = at.m_target;
 		at.m_stiffness = src.m_stiffness;
 		at.m_hard = src.m_hard;
 		at.m_penalty = src.m_stiffness;
@@ -256,6 +257,7 @@ void btVariationalDeformableSolver::syncPickingForces()
 				btVariationalAttachment at;
 				at.m_nodeA = body.m_firstNode + int(face.m_n[k] - base);
 				at.m_target = btVec3d(pick->getMousePos());
+				at.m_prevTarget = at.m_target;
 				at.m_stiffness = pick->getElasticStiffness();
 				m_system.m_attachments.push_back(at);
 			}

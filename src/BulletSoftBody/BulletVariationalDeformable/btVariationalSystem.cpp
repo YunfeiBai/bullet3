@@ -1056,7 +1056,7 @@ void btVariationalSystem::hessian(const btVec3d* x, btVariationalHessian& H, btV
 	if (m_contact) m_contact->addHessian(x, H, filter);
 }
 
-void btVariationalSystem::vertexForceAndHessian(int node, const btVec3d* x, btVec3d& force, btMat3d& hess) const
+void btVariationalSystem::vertexForceAndHessian(int node, const btVec3d* x, btVec3d& force, btMat3d& hess, btMat3d* elasticHess) const
 {
 	const double invH2 = 1.0 / (m_dt * m_dt);
 	force = (x[node] - m_xTilde[node]) * (-invH2 * m_mass[node]);
@@ -1086,6 +1086,11 @@ void btVariationalSystem::vertexForceAndHessian(int node, const btVec3d* x, btVe
 		hess.addScaledIdentity(sp.m_stiffness * cc);
 		hess.addScaledOuter(sp.m_stiffness * (1.0 - cc), dir, dir);
 	}
+	if (elasticHess)
+	{
+		*elasticHess = hess;
+		elasticHess->addScaledIdentity(-invH2 * m_mass[node]);
+	}
 	for (int p = m_nodeAttachStart[node]; p < m_nodeAttachStart[node + 1]; p++)
 	{
 		const btVariationalAttachment& at = m_attachments[m_nodeAttach[p] >> 1];
@@ -1106,14 +1111,45 @@ void btVariationalSystem::vertexForceAndHessian(int node, const btVec3d* x, btVe
 	if (m_contact) m_contact->addVertexForceAndHessian(node, x, force, hess);
 }
 
+double btVariationalSystem::colliderNodeMaxStep(const btVariationalCollider& col, const btVec3d& xi, const btVec3d& pi, double alpha, bool conservative) const
+{
+	// The distance to a convex obstacle is convex along a ray, so Newton steps on d(t) = keep * d(0)
+	// approach the time of impact from below. Other shapes use the Lipschitz bound |d'| <= |p|.
+	const double keep = 0.2;  // fraction of the initial gap that is preserved
+	const double pLen = pi.length();
+	if (pLen == 0.0) return alpha;
+	double d0;
+	btVec3d nrm;
+	col.signedDistance(xi, d0, nrm);
+	if (d0 <= 0.0) return 0.0;  // already touching: do not move further in
+	if (d0 > pLen * alpha + m_colliderMargin) return alpha;
+	double target = keep * d0;
+	if (conservative)
+	{
+		// enter the barrier zone gradually: stop at half the margin, or keep 90% of a smaller gap
+		const double gentle = 0.5 * m_colliderMargin < 0.9 * d0 ? 0.5 * m_colliderMargin : 0.9 * d0;
+		if (gentle > target) target = gentle;
+	}
+	double t = 0.0, d = d0;
+	for (int it = 0; it < 32 && t < alpha; it++)
+	{
+		const double rate = col.isConvexExact() ? -nrm.dot(pi) : pLen;
+		if (rate <= 0.0) return alpha;  // moving away, and convexity keeps it that way
+		const double dt = (d - target) / rate;
+		if (dt <= 1e-12 * (1.0 + t)) break;
+		t += dt;
+		if (t >= alpha) return alpha;
+		col.signedDistance(xi + pi * t, d, nrm);
+		if (d <= target * (1.0 + 1e-9)) break;
+	}
+	return t < alpha ? t : alpha;
+}
+
 double btVariationalSystem::maxStepSize(const btVec3d* x, const btVec3d* p) const
 {
 	double alpha = 1.0;
 	if (m_colliderModel == COLLIDER_BARRIER && m_evaluateColliders)
 	{
-		// The distance to a convex obstacle is convex along a ray, so Newton steps on d(t) = s * d(0)
-		// approach the time of impact from below. Other shapes use the Lipschitz bound |d'| <= |p|.
-		const double keep = 0.2;  // fraction of the initial gap that is preserved
 		for (int b = 0; b < m_bodies.size(); b++)
 		{
 			const btVariationalBody& body = m_bodies[b];
@@ -1121,38 +1157,29 @@ double btVariationalSystem::maxStepSize(const btVec3d* x, const btVec3d* p) cons
 			{
 				const btVariationalCollider& col = m_colliders[body.m_colliders[s]];
 				for (int i = body.m_firstNode; i < body.m_firstNode + body.m_numNodes; i++)
-				{
-					const double pLen = p[i].length();
-					if (pLen == 0.0) continue;
-					double d0;
-					btVec3d nrm;
-					col.signedDistance(x[i], d0, nrm);
-					if (d0 <= 0.0 || d0 > pLen * alpha + m_colliderMargin) continue;
-					const double target = keep * d0;
-					double t = 0.0, d = d0;
-					for (int it = 0; it < 32 && t < alpha; it++)
-					{
-						const double rate = col.isConvexExact() ? -nrm.dot(p[i]) : pLen;
-						if (rate <= 0.0)
-						{
-							t = alpha;  // moving away, and convexity keeps it that way
-							break;
-						}
-						const double dt = (d - target) / rate;
-						if (dt <= 1e-12 * (1.0 + t)) break;
-						t += dt;
-						if (t >= alpha) break;
-						col.signedDistance(x[i] + p[i] * t, d, nrm);
-						if (d <= target * (1.0 + 1e-9)) break;
-					}
-					if (t < alpha) alpha = t;
-				}
+					alpha = colliderNodeMaxStep(col, x[i], p[i], alpha);
 			}
 		}
 	}
 	if (m_contact)
 	{
 		const double a = m_contact->maxStepSize(x, p);
+		if (a < alpha) alpha = a;
+	}
+	return alpha;
+}
+
+double btVariationalSystem::vertexMaxStepSize(int node, const btVec3d* x, const btVec3d& dx, bool conservative) const
+{
+	double alpha = 1.0;
+	if (m_colliderModel == COLLIDER_BARRIER && m_evaluateColliders)
+	{
+		const btVariationalBody& body = m_bodies[m_nodeBody[node]];
+		for (int s = 0; s < body.m_colliders.size(); s++) alpha = colliderNodeMaxStep(m_colliders[body.m_colliders[s]], x[node], dx, alpha, conservative);
+	}
+	if (m_contact)
+	{
+		const double a = m_contact->vertexMaxStepSize(node, x, dx, conservative);
 		if (a < alpha) alpha = a;
 	}
 	return alpha;

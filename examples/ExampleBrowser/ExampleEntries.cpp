@@ -76,6 +76,9 @@
 #include "../VariationalDeformableDemo/StableNeoHookean.h"
 #include "../VariationalDeformableDemo/ProjectiveDynamics.h"
 #include "../VariationalDeformableDemo/QuasiNewton.h"
+#include "../VariationalDeformableDemo/IncrementalPotentialContact.h"
+#include "../VariationalDeformableDemo/VertexBlockDescent.h"
+#include "../VariationalDeformableDemo/AugmentedVertexBlockDescent.h"
 #include "../ReducedDeformableDemo/ConservationTest.h"
 #include "../ReducedDeformableDemo/ModeVisualizer.h"
 #include "../ReducedDeformableDemo/Springboard.h"
@@ -245,6 +248,9 @@ static ExampleEntry gDefaultExamples[] =
 		ExampleEntry(1, "Projective Dynamics", "Fast Simulation of Mass-Spring Systems (Liu et al. 2013) and Projective Dynamics (Bouaziz et al. 2014): a cloth and two solids advanced by one local/global solver with a prefactorized system matrix.", VariationalProjectiveDynamicsCreateFunc),
 		ExampleEntry(1, "Quasi-Newton Hyperelastic", "Quasi-Newton Methods for Real-Time Simulation of Hyperelastic Materials (Liu, Bouaziz, Kavan 2017): L-BFGS on the projective dynamics matrix, with a nearly incompressible Stable Neo-Hookean material.", VariationalQuasiNewtonCreateFunc),
 		ExampleEntry(1, "Stable Neo-Hookean", "Stable Neo-Hookean Flesh Simulation (Smith et al. 2018) with projected Newton and the eigenvalue filters of Chen et al. 2024: a twisted bar, a cube squashed flat and a cube with scrambled nodes all recover.", VariationalStableNeoHookeanCreateFunc),
+		ExampleEntry(1, "Incremental Potential Contact", "Incremental Potential Contact (Li et al. 2020): log barrier contact with continuous collision detection and lagged friction, solved by projected Newton. Soft cubes and slabs pile up without ever interpenetrating.", VariationalIncrementalPotentialContactCreateFunc),
+		ExampleEntry(1, "Vertex Block Descent", "Vertex Block Descent (Chen, Liu, Yang, Yuksel 2024): Gauss-Seidel over colored vertices with one 3x3 Newton step per vertex and no global linear system. A batch of soft cubes rains down.", VariationalVertexBlockDescentCreateFunc),
+		ExampleEntry(1, "Augmented Vertex Block Descent", "Augmented Vertex Block Descent (Giles, Diaz, Yuksel 2025): hard joints through an augmented Lagrangian inside VBD. Two chains with a hundredfold heavier block at the end: hard joints stay closed, springs of the same stiffness come apart.", VariationalAugmentedVertexBlockDescentCreateFunc),
         
 #ifdef INCLUDE_CLOTH_DEMOS
 		ExampleEntry(0, "Soft Body"),

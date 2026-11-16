@@ -15,6 +15,7 @@ subject to the following restrictions:
 
 #include "btVariationalProjectedNewton.h"
 #include <stdio.h>
+#include "LinearMath/btQuickprof.h"
 
 //
 // helpers shared by all integrators
@@ -42,19 +43,44 @@ double btVariationalIntegrator::advanceToInitialGuess(btVariationalSystem& syste
 	// free nodes: the inertial target is the better start in free flight, the previous positions are
 	// better when stiff forces dominate (large time steps, strong kinematic motion). Take the one
 	// with the lower energy.
-	any = false;
-	for (int i = 0; i < n; i++)
-	{
-		p[i] = system.m_fixed[i] ? btVec3d(0, 0, 0) : system.m_xTilde[i] - system.m_x[i];
-		if (p[i].length2() > 0.0) any = true;
-	}
-	if (!any) return covered;
-	const double alpha = system.maxStepSize(&system.m_x[0], &p[0]);
 	const double energyStay = system.energy(&system.m_x[0]);
-	for (int i = 0; i < n; i++) p[i] = system.m_x[i] + p[i] * alpha;
-	if (system.energy(&p[0]) < energyStay)
+	for (int i = 0; i < n; i++) p[i] = system.m_x[i];
+	moveNodesTowards(system, &system.m_xTilde[0]);
+	if (!(system.energy(&system.m_x[0]) < energyStay))
 		for (int i = 0; i < n; i++) system.m_x[i] = p[i];
 	return covered;
+}
+
+void btVariationalIntegrator::moveNodesTowards(btVariationalSystem& system, const btVec3d* target)
+{
+	const int n = system.numNodes();
+	const bool barrier = system.m_contact != 0 || (system.m_colliderModel == btVariationalSystem::COLLIDER_BARRIER && system.m_evaluateColliders);
+	if (!barrier)
+	{
+		for (int i = 0; i < n; i++)
+			if (!system.m_fixed[i]) system.m_x[i] = target[i];
+		return;
+	}
+	btVec3dArray direction;
+	direction.resize(n);
+	double reach = 0;
+	for (int i = 0; i < n; i++)
+	{
+		if (system.m_fixed[i]) continue;
+		direction[i] = target[i] - system.m_x[i];
+		const double d = direction[i].length();
+		if (d > reach) reach = d;
+	}
+	if (reach == 0.0) return;
+	if (system.m_contact) system.m_contact->prepareLocalSteps(&system.m_x[0], reach, &direction[0]);
+	for (int i = 0; i < n; i++)
+	{
+		if (system.m_fixed[i]) continue;
+		const btVec3d dx = direction[i];
+		if (dx.length2() == 0.0) continue;
+		const double alpha = system.vertexMaxStepSize(i, &system.m_x[0], dx, true);
+		system.m_x[i] += dx * alpha;
+	}
 }
 
 double btVariationalIntegrator::lineSearch(const btVariationalSystem& system, btVec3d* x, const btVec3d* p, const btVec3d* g, double alphaMax,
@@ -119,8 +145,17 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 	btVec3d* x = &system.m_x[0];
 	const char* fixed = &system.m_fixed[0];
 
+	btClock clock;
+	double tGuess = 0, tGradient = 0, tHessian = 0, tLinear = 0, tCcd = 0, tSearch = 0;  // seconds, reported when verbose
+#define BT_NEWTON_LAP(acc)                              \
+	{                                                   \
+		acc += clock.getTimeMicroseconds() * 1e-6;      \
+		clock.reset();                                  \
+	}
 	double covered = advanceToInitialGuess(system, true);
 	double E = system.energy(x);
+	BT_NEWTON_LAP(tGuess);
+	int skipExact = 0;  // iterations for which the exact Hessian is not tried after it failed
 	for (int iter = 0; iter < m_maxIterations; iter++)
 	{
 		if (covered < 1.0)
@@ -129,6 +164,8 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 			covered = advanceToInitialGuess(system, false);
 			E = system.energy(x);
 		}
+		// adaptive barrier stiffness of IPC: stiffen when contacts keep closing in
+		if (system.m_contact && system.m_contact->updateStiffness(x)) E = system.energy(x);
 		system.gradient(x, &m_gradient[0]);
 		const double gNorm = system.gradientNorm(&m_gradient[0]);
 		if (iter == 0) m_stats.m_initialGradient = gNorm;
@@ -136,11 +173,14 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 
 		// First try the exact Hessian (if enabled), fall back to the eigenvalue filtered one whenever it
 		// does not produce a usable descent step.
-		bool exact = m_projectOnDemand && system.m_hessianFilter != BT_VARIATIONAL_FILTER_NONE;
+		bool exact = m_projectOnDemand && system.m_hessianFilter != BT_VARIATIONAL_FILTER_NONE && skipExact == 0;
+		if (skipExact > 0) skipExact--;
 		bool done = false;
+		BT_NEWTON_LAP(tGradient);
 		for (;;)
 		{
 			system.hessian(x, m_hessian, exact ? BT_VARIATIONAL_FILTER_NONE : system.m_hessianFilter);
+			BT_NEWTON_LAP(tHessian);
 			for (int i = 0; i < n; i++) m_scratch[i] = -m_gradient[i];
 			const btVariationalPreconditioner* pre = m_preconditioner;
 			if (!pre)
@@ -150,6 +190,7 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 			}
 			bool indefinite = false;
 			m_stats.m_linearIterations += btVariationalConjugateGradient(m_hessian, &m_scratch[0], &m_direction[0], fixed, n, pre, m_linearTolerance, m_maxLinearIterations, &indefinite);
+			BT_NEWTON_LAP(tLinear);
 			double step = 0, slope = 0;
 			for (int i = 0; i < n; i++)
 			{
@@ -164,7 +205,9 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 			}
 			if (exact && (indefinite || !(slope < 0.0)))
 			{
+				// the exact Hessian is indefinite here; it usually stays so for a few iterations
 				exact = false;
+				skipExact = 3;
 				continue;
 			}
 			if (step / system.m_dt < m_tolerance && covered >= 1.0)
@@ -174,7 +217,9 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 				break;
 			}
 			const double alphaMax = system.maxStepSize(x, &m_direction[0]);
+			BT_NEWTON_LAP(tCcd);
 			const double alpha = lineSearch(system, x, &m_direction[0], &m_gradient[0], alphaMax, E, &m_scratch[0], m_stats.m_lineSearchSteps, &E);
+			BT_NEWTON_LAP(tSearch);
 			if (alpha == 0.0 && exact)
 			{
 				exact = false;
@@ -192,6 +237,10 @@ void btVariationalProjectedNewton::solve(btVariationalSystem& system)
 		}
 		if (done) break;
 	}
+#undef BT_NEWTON_LAP
+	if (m_verbose)
+		printf("  newton time [ms]: initial guess %.2f, gradient %.2f, hessian %.2f, linear solve %.2f, ccd %.2f, line search %.2f\n",
+			   tGuess * 1e3, tGradient * 1e3, tHessian * 1e3, tLinear * 1e3, tCcd * 1e3, tSearch * 1e3);
 	m_stats.m_energy = E;
 	if (m_stats.m_converged)
 	{

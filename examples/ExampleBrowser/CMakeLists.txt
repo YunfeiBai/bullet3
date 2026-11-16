@@ -397,6 +397,13 @@ SET(BulletExampleBrowser_SRCS
 	../VariationalDeformableDemo/ProjectiveDynamics.h
 	../VariationalDeformableDemo/QuasiNewton.cpp
 	../VariationalDeformableDemo/QuasiNewton.h
+	../VariationalDeformableDemo/VariationalSceneHelpers.h
+	../VariationalDeformableDemo/IncrementalPotentialContact.cpp
+	../VariationalDeformableDemo/IncrementalPotentialContact.h
+	../VariationalDeformableDemo/VertexBlockDescent.cpp
+	../VariationalDeformableDemo/VertexBlockDescent.h
+	../VariationalDeformableDemo/AugmentedVertexBlockDescent.cpp
+	../VariationalDeformableDemo/AugmentedVertexBlockDescent.h
 	../ReducedDeformableDemo/ConservationTest.cpp
 	../ReducedDeformableDemo/ConservationTest.h
 	../ReducedDeformableDemo/Springboard.cpp

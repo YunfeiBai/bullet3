@@ -65,6 +65,7 @@ struct btVariationalAttachment
 	int m_nodeA;
 	int m_nodeB;
 	btVec3d m_target;
+	btVec3d m_prevTarget;  // target at the end of the previous step
 	double m_stiffness;
 	bool m_hard;
 	btVec3d m_lambda;
@@ -172,6 +173,26 @@ public:
 	virtual void addGradient(const btVec3d* x, btVec3d* g) const = 0;
 	virtual void addHessian(const btVec3d* x, btVariationalHessian& H, btVariationalHessianFilter filter) const = 0;
 	virtual void addVertexForceAndHessian(int node, const btVec3d* x, btVec3d& force, btMat3d& hess) const = 0;
+	///Largest alpha in [0,1] for which moving only this node by alpha * dx is free of intersections.
+	///With conservative set the node also enters the contact zone only gradually (see btAdditiveCCD).
+	virtual double vertexMaxStepSize(int node, const btVec3d* x, const btVec3d& dx, bool conservative) const = 0;
+	///Called by solvers that move one node at a time, before a sweep in which no node will travel
+	///further than radius from x (vertexMaxStepSize enforces that bound). If direction is given, node i
+	///will instead only move along the segment from x_i to x_i + direction_i.
+	///Returns the radius that is actually in effect (it may be enlarged).
+	virtual double prepareLocalSteps(const btVec3d* x, double radius, const btVec3d* direction = 0)
+	{
+		(void)x;
+		(void)direction;
+		return radius;
+	}
+	///Gives the contact model the chance to adapt its stiffness to the current iterate. Returns true
+	///if the energy changed as a result.
+	virtual bool updateStiffness(const btVec3d* x)
+	{
+		(void)x;
+		return false;
+	}
 	///largest alpha in [0,1] for which x + alpha * p is free of intersections
 	virtual double maxStepSize(const btVec3d* x, const btVec3d* p) const = 0;
 };
@@ -246,6 +267,7 @@ private:
 		return &m_colliderLag[m_colliderLagStart[body] + slot * m_bodies[body].m_numNodes + (node - m_bodies[body].m_firstNode)];
 	}
 	double colliderKernel(double d, double stiffness, double& dE, double& d2E) const;
+	double colliderNodeMaxStep(const btVariationalCollider& col, const btVec3d& xi, const btVec3d& pi, double alpha, bool conservative = false) const;
 	void addColliderNode(int body, int node, const btVec3d& xi, const btVec3d& xPrev, double& energy, btVec3d* grad, btMat3d* hess) const;
 
 public:
@@ -281,8 +303,14 @@ public:
 	///element-by-element Hessian with the given eigenvalue filter (m_hessianFilter by default)
 	void hessian(const btVec3d* x, btVariationalHessian& H) const { hessian(x, H, m_hessianFilter); }
 	void hessian(const btVec3d* x, btVariationalHessian& H, btVariationalHessianFilter filter) const;
-	///descent force (-gradient) and 3x3 Hessian block of a single node, all other nodes held fixed
-	void vertexForceAndHessian(int node, const btVec3d* x, btVec3d& force, btMat3d& hess) const;
+	///descent force (-gradient) and 3x3 Hessian block of a single node, all other nodes held fixed.
+	///elasticHess, if given, receives the part of the block that comes from the elements alone
+	///(vertex block descent uses it for stiffness proportional damping).
+	void vertexForceAndHessian(int node, const btVec3d* x, btVec3d& force, btMat3d& hess, btMat3d* elasticHess = 0) const;
+	///Largest alpha in [0,1] such that moving only this node by alpha * dx keeps the barrier terms
+	///feasible. With conservative set, a node outside a barrier zone stops at half the activation
+	///distance and a node inside closes at most a tenth of its gap, so contact is entered gradually.
+	double vertexMaxStepSize(int node, const btVec3d* x, const btVec3d& dx, bool conservative = false) const;
 	///largest step alpha in [0,1] such that x + alpha * p stays feasible for the barrier terms
 	double maxStepSize(const btVec3d* x, const btVec3d* p) const;
 	///infinity norm of the gradient over the free nodes

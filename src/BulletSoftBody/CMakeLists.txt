@@ -39,6 +39,8 @@ SET(BulletSoftBody_SRCS
 	BulletVariationalDeformable/btVariationalLaplacian.cpp
 	BulletVariationalDeformable/btVariationalProjectiveDynamics.cpp
 	BulletVariationalDeformable/btVariationalQuasiNewton.cpp
+	BulletVariationalDeformable/btVariationalVertexBlockDescent.cpp
+	BulletVariationalDeformable/btVariationalIPC.cpp
 )
 
 
@@ -95,6 +97,9 @@ SET(BulletSoftBody_HDRS
 	BulletVariationalDeformable/btVariationalLaplacian.h
 	BulletVariationalDeformable/btVariationalProjectiveDynamics.h
 	BulletVariationalDeformable/btVariationalQuasiNewton.h
+	BulletVariationalDeformable/btVariationalVertexBlockDescent.h
+	BulletVariationalDeformable/btVariationalDistance.h
+	BulletVariationalDeformable/btVariationalIPC.h
 )
 
 

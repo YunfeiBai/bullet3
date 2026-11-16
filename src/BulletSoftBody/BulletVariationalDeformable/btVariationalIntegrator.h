@@ -59,6 +59,12 @@ public:
 	///the free nodes start from the inertial target or from x_n, whichever has the lower energy.
 	static double advanceToInitialGuess(btVariationalSystem& system, bool freeNodesToo);
 
+	///Moves every free node towards its target position as far as the barrier terms allow, one node
+	///at a time. Nodes that are not near any contact take the whole step; without barrier terms this
+	///is simply x = target. Unlike a single step length for all nodes, a body in resting contact does
+	///not hold back a body in free flight.
+	static void moveNodesTowards(btVariationalSystem& system, const btVec3d* target);
+
 	///Backtracking (Armijo) line search along p starting at alphaMax. Returns the accepted step
 	///length (0 if no decrease was found) and updates x in place.
 	static double lineSearch(const btVariationalSystem& system, btVec3d* x, const btVec3d* p, const btVec3d* g, double alphaMax,
