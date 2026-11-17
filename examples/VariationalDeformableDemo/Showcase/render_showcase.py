@@ -12,7 +12,9 @@ The first form needs Blender as a Python module (pip install bpy). Options:
     --samples N       samples per pixel (default 48; the image is denoised)
     --frames A B      render only output frames A..B-1 (to split the work or to resume)
     --still T         render one frame at simulated time T and stop
-    --camera NAME     "story" (default, the animated camera), or a fixed "wide" / "close" view
+    --camera NAME     "story" (default, the animated camera), "replay" (a close view of the impact;
+                      use it with --start 5.45 --end 6.65 --fps 60 for half speed), or a fixed
+                      "wide" / "close" view
 
 One PNG per frame is written to the output directory (frames that exist are skipped); turn them
 into a video with e.g.
@@ -311,6 +313,10 @@ CAMERA_KEYS = {
         (6.4, (1.2, -4.6, 1.7), (0.9, 0.0, 0.8), 33.0),     # after the flying toys
         (7.3, (1.1, -4.5, 1.6), (0.8, 0.0, 0.6), 35.0),
         (8.9, (0.0, -4.7, 1.6), (0.65, 0.0, 0.65), 36.0),   # slowly around what is left
+    ],
+    "replay": [                                             # the impact once more, from close by
+        (5.4, (1.3, -3.3, 1.5), (0.2, 0.0, 1.08), 45.0),
+        (6.7, (1.7, -3.1, 1.4), (0.55, 0.0, 0.95), 45.0),
     ],
     "wide": [(0.0, (1.0, -7.5, 2.6), (-0.2, 0.0, 1.5), 30.0)],
     "close": [(0.0, (2.6, -3.6, 2.6), (0.0, 0.0, 0.95), 40.0)],
