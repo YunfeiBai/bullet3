@@ -61,6 +61,9 @@ practically singular.)
     # 3. encode
     ffmpeg -framerate 30 -i frames/frame_%04d.png -c:v libx264 -crf 17 -pix_fmt yuv420p showcase.mp4
 
+    # optional: the impact once more from close by, at half speed when played at 30 frames per second
+    python render_showcase.py out replay --data /path/to/bullet3/data --camera replay --start 5.45 --end 6.65 --fps 60 --samples 20
+
 `App_VariationalShowcase` is built by CMake with the examples (it is not part of the example
 browser: the scene is far from real time). The simulation takes about half an hour on one core; a
 coarser cloth (a fifth argument of 2 and a sixth of 28) makes it about a third faster for previews.
