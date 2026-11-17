@@ -62,6 +62,10 @@ protected:
 		btVector3 m_target;
 		btScalar m_stiffness;
 		bool m_hard;
+		bool m_enabled;
+		// dual variable and penalty of a hard attachment, carried over when the system is rebuilt
+		btVec3d m_lambda;
+		double m_penalty;
 	};
 	struct PendingCollider
 	{
@@ -110,6 +114,8 @@ public:
 	///Ties two nodes (of the same or of different soft bodies) together.
 	int addAttachment(btSoftBody* psbA, int nodeA, btSoftBody* psbB, int nodeB, btScalar stiffness, bool hard = false);
 	void setAttachmentTarget(int attachment, const btVector3& target);
+	///Switches an attachment off (it then exerts no force) or on again, e.g. to release a body.
+	void setAttachmentEnabled(int attachment, bool enabled);
 	void removeAllAttachments();
 
 	// ---- btDeformableBodySolver interface

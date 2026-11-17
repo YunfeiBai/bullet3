@@ -43,6 +43,7 @@ vertex block descent, the dual update of the augmented Lagrangian); no code was 
 | `btVariationalHybrid` | Chooses among the above per time step, see below |
 | `btVariationalLaplacian`, `btVariationalSparse` | The constant matrix M/h^2 + L of projective dynamics and a sparse Cholesky factorization (nested dissection, up-looking) |
 | `btVariationalDistance.h` | Point-triangle and edge-edge distances with exact derivatives, additive continuous collision detection |
+| `btVariationalHelpers` | Tetrahedral blocks, ellipsoids, rounded boxes and tori with quad surfaces for rendering; lumped masses |
 | `btVariationalMath.h` | Double precision 3x3 / 9x9 / 12x12 algebra, rotation-variant SVD, symmetric eigen-solver, eigenvalue filters |
 
 The solver state is kept in double precision whatever `btScalar` is: barrier contact works with
@@ -65,11 +66,20 @@ gaps that single precision cannot resolve.
     solver->setIntegrator(&integrator);
     btVariationalIPC contact;                       // optional: contact between deformables
     solver->getSystem().m_contact = &contact;
-    solver->addAttachment(psb, node, target, 1e5, true);   // hard attachment to a world point
+    int joint = solver->addAttachment(psb, node, target, 1e5, true);   // hard attachment to a world point
+    solver->setAttachmentEnabled(joint, false);                        // ... and letting go of it later
+    contact.excludePair(linkA, linkB);              // two bodies that touch where they are joined
+    contact.excludePair(psb, psb);                  // no contact of a compact solid with itself
 
 Nodes with zero mass are kinematic and follow `btSoftBody::Node::m_x`. Static, kinematic and dynamic
-rigid bodies of the world act as colliders. Materials, integrators and the contact object are not
-owned by the solver.
+rigid bodies of the world act as colliders. Soft bodies can be added to the world while it runs;
+the hard attachments that are already there keep their state. Materials, integrators and the
+contact object are not owned by the solver.
+
+Tetrahedral meshes should be of decent quality. Elements that are nearly flat make the linear
+systems of the implicit solvers almost singular: the tetrahedral bunny of Bullet's `SoftDemo` is
+such a mesh, while the `.vtk` files in `data` are fine (`bunny.vtk`, `teddy.vtk` and `duck.vtk`
+were made for this module, see `examples/VariationalDeformableDemo/Showcase`).
 
 ## Hybrid integrator
 
@@ -110,6 +120,11 @@ environment variable `BT_VARIATIONAL_DEMO_LOG` to also print them, with per-body
 console. An example can be started directly with
 `App_ExampleBrowser --start_demo_name="Combined: Hybrid Solver"`.
 
+`examples/VariationalDeformableDemo/Showcase` holds a larger scene that is simulated offline and
+rendered with Blender: a teddy bear, a duck, a bunny and other soft toys drop into a cloth hammock,
+and a wrecking ball on a jointed chain swings into it. Its README describes the scene and how to
+reproduce the video.
+
 ## Tests
 
 `test/BulletSoftBody/test_btVariationalDeformable.cpp` (built with `BUILD_UNIT_TESTS`, run with
@@ -128,7 +143,9 @@ console. An example can be started directly with
 - hard attachments close to a fraction of a millimetre where springs of the same stiffness stretch
   by centimetres,
 - a Bullet world with the solver steps, lands a body on a rigid box, keeps an attachment, and can be
-  torn down.
+  torn down; a joint is not disturbed when another body enters the world, and lets go when it is
+  switched off,
+- the generated ellipsoids and tori are closed, correctly oriented and free of flat elements.
 
 ## Measurements
 

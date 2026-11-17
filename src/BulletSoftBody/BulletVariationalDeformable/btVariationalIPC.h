@@ -64,6 +64,12 @@ public:
 	///bodies that are tied together by attachments and touch at the joint: a barrier needs a positive
 	///distance to start from.
 	void setCollisionGroup(const btSoftBody* psb, int group);
+	///Takes one pair of soft bodies out of the contact model, e.g. two neighbouring links of a chain
+	///that touch where they are joined, while each of them still collides with everything else.
+	///With a == b this switches off the contact of one body with itself, whatever m_selfCollision
+	///says: compact solids rarely need it, and a mesh whose surface comes closer to itself than the
+	///activation distance in its rest shape (the ears of a bunny) cannot use it.
+	void excludePair(const btSoftBody* a, const btSoftBody* b);
 	///false if the last step started from touching or intersecting surfaces (the barrier is infinite there)
 	bool initialStateValid() const { return m_initialStateValid; }
 
@@ -114,11 +120,17 @@ private:
 	btAlignedObjectArray<const btSoftBody*> m_groupBodies;
 	btAlignedObjectArray<int> m_groupIds;
 	btAlignedObjectArray<int> m_bodyGroup;  // per body of the system, resolved at beginStep
+	btAlignedObjectArray<const btSoftBody*> m_excludedPairs;  // two entries per pair
+	btAlignedObjectArray<int> m_excludedStart, m_excludedPartners;  // per body: the bodies it does not collide with
 	bool m_initialStateValid, m_warned;
 	bool excluded(int bodyA, int bodyB) const
 	{
-		if (bodyA == bodyB) return !m_selfCollision;
-		return m_bodyGroup.size() > 0 && m_bodyGroup[bodyA] != 0 && m_bodyGroup[bodyA] == m_bodyGroup[bodyB];
+		if (bodyA == bodyB && !m_selfCollision) return true;
+		if (bodyA != bodyB && m_bodyGroup.size() > 0 && m_bodyGroup[bodyA] != 0 && m_bodyGroup[bodyA] == m_bodyGroup[bodyB]) return true;
+		if (m_excludedPartners.size() > 0)
+			for (int k = m_excludedStart[bodyA]; k < m_excludedStart[bodyA + 1]; k++)
+				if (m_excludedPartners[k] == bodyB) return true;
+		return false;
 	}
 	const btVariationalSystem* m_system;
 	double m_dhatActive, m_kappa, m_kappaMax, m_sceneDiagonal;

@@ -606,6 +606,108 @@ GTEST_TEST(VariationalElasticity, RestLinearizationIsLinearElasticity)
 }
 
 //
+// Mesh generators
+//
+
+namespace
+{
+double tetVolume(const btSoftBody* psb, double* smallest)
+{
+	double volume = 0;
+	*smallest = 1e300;
+	for (int t = 0; t < psb->m_tetras.size(); t++)
+	{
+		const btSoftBody::Tetra& tet = psb->m_tetras[t];
+		const btVector3 a = tet.m_n[1]->m_x - tet.m_n[0]->m_x, b = tet.m_n[2]->m_x - tet.m_n[0]->m_x, c = tet.m_n[3]->m_x - tet.m_n[0]->m_x;
+		const double v = double(a.cross(b).dot(c)) / 6.0;
+		volume += v;
+		*smallest = btMin(*smallest, v);
+	}
+	return volume;
+}
+
+// volume enclosed by the quads; positive if they are oriented outwards
+double quadVolume(const btSoftBody* psb, const btAlignedObjectArray<int>& quads)
+{
+	double volume = 0;
+	for (int q = 0; q + 3 < quads.size(); q += 4)
+	{
+		const btVector3 p0 = psb->m_nodes[quads[q]].m_x, p1 = psb->m_nodes[quads[q + 1]].m_x, p2 = psb->m_nodes[quads[q + 2]].m_x, p3 = psb->m_nodes[quads[q + 3]].m_x;
+		volume += double(p0.dot(p1.cross(p2)) + p0.dot(p2.cross(p3))) / 6.0;
+	}
+	return volume;
+}
+}  // namespace
+
+GTEST_TEST(VariationalHelpers, EllipsoidAndRoundedBox)
+{
+	btAlignedObjectArray<int> quads;
+	const btVector3 radii(0.3, 0.1, 0.2);
+	btSoftBody* ellipsoid = btVariationalHelpers::createTetEllipsoid(worldInfo(), btVector3(1, 2, 3), radii, 8, 4, 6, 1000);
+	btVariationalHelpers::gridSurfaceQuads(8, 4, 6, quads);
+	double smallest;
+	const double volume = tetVolume(ellipsoid, &smallest), exact = 4.0 / 3.0 * SIMD_PI * 0.3 * 0.1 * 0.2;
+	EXPECT_GT(smallest, 0.0);  // no inverted or flat element
+	EXPECT_LT(volume, exact);  // the polyhedron is inscribed
+	EXPECT_GT(volume, 0.93 * exact);
+	EXPECT_EQ(2 * (8 * 4 + 4 * 6 + 6 * 8), quads.size() / 4);
+	EXPECT_EQ(2 * (quads.size() / 4), ellipsoid->m_faces.size());  // Bullet's collision triangles split the same quads
+	// closed and oriented outwards (the quads are not flat, and the tetrahedra may split one along
+	// its other diagonal, hence the tolerance)
+	EXPECT_NEAR(quadVolume(ellipsoid, quads), volume, 1e-3 * volume);
+	double mass = 0;
+	for (int i = 0; i < ellipsoid->m_nodes.size(); i++) mass += 1.0 / ellipsoid->m_nodes[i].m_im;
+	EXPECT_NEAR(mass, 1000.0 * volume, 1e-4 * mass);
+	// every surface node lies on the ellipsoid
+	for (int q = 0; q < quads.size(); q++)
+	{
+		const btVector3 d = ellipsoid->m_nodes[quads[q]].m_x - btVector3(1, 2, 3);
+		EXPECT_NEAR(btSqrt(d.x() * d.x() / (radii.x() * radii.x()) + d.y() * d.y() / (radii.y() * radii.y()) + d.z() * d.z() / (radii.z() * radii.z())), 1.0, 1e-4);
+	}
+	delete ellipsoid;
+
+	// roundness 0 is the plain block
+	btSoftBody* block = btVariationalHelpers::createTetEllipsoid(worldInfo(), btVector3(0, 0, 0), btVector3(0.2, 0.3, 0.1), 3, 4, 2, 1000, 0);
+	btSoftBody* grid = btVariationalHelpers::createTetGrid(worldInfo(), btVector3(0, 0, 0), btVector3(0.2, 0.3, 0.1), 3, 4, 2, 1000);
+	ASSERT_EQ(grid->m_nodes.size(), block->m_nodes.size());
+	for (int i = 0; i < grid->m_nodes.size(); i++) EXPECT_LT((grid->m_nodes[i].m_x - block->m_nodes[i].m_x).length(), btScalar(1e-6));
+	EXPECT_NEAR(tetVolume(block, &smallest), 0.4 * 0.6 * 0.2, 1e-6);
+	delete block;
+	delete grid;
+}
+
+GTEST_TEST(VariationalHelpers, Torus)
+{
+	btAlignedObjectArray<int> quads;
+	btSoftBody* torus = btVariationalHelpers::createTetTorus(worldInfo(), btVector3(0, 1, 0), 0.15, 0.05, 24, 3, 1000);
+	btVariationalHelpers::torusSurfaceQuads(24, 3, quads);
+	double smallest;
+	const double volume = tetVolume(torus, &smallest), exact = 2.0 * SIMD_PI * SIMD_PI * 0.15 * 0.05 * 0.05;
+	EXPECT_GT(smallest, 0.0);
+	EXPECT_LT(volume, exact);
+	EXPECT_GT(volume, 0.92 * exact);
+	EXPECT_EQ(24 * 4 * 3, quads.size() / 4);
+	EXPECT_EQ(2 * (quads.size() / 4), torus->m_faces.size());
+	EXPECT_NEAR(quadVolume(torus, quads), volume, 1e-3 * volume);
+	// the mesh closes on itself around the ring: left alone it stays exactly as it is
+	btVariationalStableNeoHookean material(1e5, 0.4);
+	btVariationalSystem sys;
+	sys.addBody(torus, &material, 0, 0);
+	sys.buildTopology();
+	sys.m_gravity = btVec3d(0, 0, 0);
+	btVec3dArray rest;
+	rest.resize(sys.numNodes());
+	for (int i = 0; i < sys.numNodes(); i++) rest[i] = sys.m_x[i];
+	btVariationalProjectedNewton newton;
+	for (int s = 0; s < 3; s++) step(sys, newton);
+	double moved = 0;
+	for (int i = 0; i < sys.numNodes(); i++) moved = btMax(moved, (sys.m_x[i] - rest[i]).length());
+	EXPECT_LT(moved, 1e-12);
+	EXPECT_LT(sys.elasticEnergy(&sys.m_x[0]), 1e-20);
+	delete torus;
+}
+
+//
 // Sparse Cholesky
 //
 
@@ -1537,6 +1639,63 @@ GTEST_TEST(VariationalIPC, CollisionGroupsExcludeJoinedBodies)
 	}
 }
 
+GTEST_TEST(VariationalIPC, PairsAndSelfContactCanBeExcluded)
+{
+	btVariationalStableNeoHookean material(2e5, 0.4);
+	// two cubes that touch along a face, as two links of a chain do at their joint
+	for (int excluded = 0; excluded < 2; excluded++)
+	{
+		btSoftBody* a = btVariationalHelpers::createTetGrid(worldInfo(), btVector3(0, 1.0, 0), btVector3(0.1, 0.1, 0.1), 2, 2, 2, 1000);
+		btSoftBody* b = btVariationalHelpers::createTetGrid(worldInfo(), btVector3(0, 0.8, 0), btVector3(0.1, 0.1, 0.1), 2, 2, 2, 1000);
+		btSoftBody* c = btVariationalHelpers::createTetGrid(worldInfo(), btVector3(0, 0.598, 0), btVector3(0.1, 0.1, 0.1), 2, 2, 2, 1000);
+		btVariationalSystem sys;
+		sys.addBody(a, &material, 0, 0);
+		sys.addBody(b, &material, 0, 0);
+		sys.addBody(c, &material, 0, 0);
+		sys.buildTopology();
+		btVariationalIPC ipc;
+		ipc.m_dhat = 0.005;
+		if (excluded) ipc.excludePair(a, b);
+		sys.m_contact = &ipc;
+		sys.beginStep(kDt);
+		EXPECT_EQ(excluded == 1, ipc.initialStateValid());
+		if (excluded)
+		{
+			// the third cube, 2 mm below the second, is still in contact with it
+			double smallest;
+			EXPECT_GT(ipc.countActivePairs(&sys.m_x[0], &smallest), 0);
+			EXPECT_NEAR(smallest, 0.002, 1e-6);
+		}
+		sys.endStep();
+		sys.m_contact = 0;
+		delete a;
+		delete b;
+		delete c;
+	}
+	// a ring whose hole is narrower than the activation distance touches itself in its rest shape
+	for (int excluded = 0; excluded < 2; excluded++)
+	{
+		btSoftBody* ring = btVariationalHelpers::createTetTorus(worldInfo(), btVector3(0, 1, 0), 0.051, 0.05, 16, 2, 1000);
+		btVariationalSystem sys;
+		sys.addBody(ring, &material, 0, 0);
+		sys.buildTopology();
+		btVariationalIPC ipc;
+		ipc.m_dhat = 0.005;
+		if (excluded) ipc.excludePair(ring, ring);
+		sys.m_contact = &ipc;
+		sys.beginStep(kDt);
+		double smallest;
+		const int active = ipc.countActivePairs(&sys.m_x[0], &smallest);
+		if (excluded)
+			EXPECT_EQ(0, active);
+		else
+			EXPECT_GT(active, 0);
+		sys.endStep();
+		sys.m_contact = 0;
+		delete ring;
+	}
+}
+
 //
 // Hybrid integrator
 //
@@ -1682,6 +1841,64 @@ GTEST_TEST(VariationalDeformableSolver, StepsSoftBodiesInABulletWorld)
 	world->removeRigidBody(ground);
 	delete ground;
 	delete groundShape;
+	delete world;
+	delete solver;
+	delete deformableSolver;
+	delete broadphase;
+	delete dispatcher;
+	delete collisionConfiguration;
+}
+
+GTEST_TEST(VariationalDeformableSolver, JointsSurviveNewBodiesAndCanBeReleased)
+{
+	btSoftBodyRigidBodyCollisionConfiguration* collisionConfiguration = new btSoftBodyRigidBodyCollisionConfiguration();
+	btCollisionDispatcher* dispatcher = new btCollisionDispatcher(collisionConfiguration);
+	btDbvtBroadphase* broadphase = new btDbvtBroadphase();
+	btVariationalDeformableSolver* deformableSolver = new btVariationalDeformableSolver();
+	btDeformableMultiBodyConstraintSolver* solver = new btDeformableMultiBodyConstraintSolver();
+	solver->setDeformableSolver(deformableSolver);
+	btDeformableMultiBodyDynamicsWorld* world = new btDeformableMultiBodyDynamicsWorld(dispatcher, broadphase, solver, collisionConfiguration, deformableSolver);
+	world->setGravity(btVector3(0, -9.8, 0));
+	world->getWorldInfo().m_gravity = btVector3(0, -9.8, 0);
+	world->getWorldInfo().m_sparsesdf.Initialize();
+	btVariationalHybrid hybrid;
+	deformableSolver->setIntegrator(&hybrid);
+
+	// 8 kg hang from one node on a hard attachment that starts as a soft spring: only the dual
+	// variable and the grown penalty of the augmented Lagrangian keep it from sagging by centimetres
+	btVariationalStableNeoHookean material(1e6, 0.4);
+	btSoftBody* hanging = btVariationalHelpers::createTetGrid(world->getWorldInfo(), btVector3(0, 2, 0), btVector3(0.1, 0.1, 0.1), 2, 2, 2, 1000);
+	world->addSoftBody(hanging);
+	deformableSolver->setMaterial(hanging, &material);
+	const int node = 1 + 3 * (2 + 3 * 1);  // middle of the top face
+	const btVector3 anchor = hanging->m_nodes[node].m_x;
+	const int attachment = deformableSolver->addAttachment(hanging, node, anchor, 2e3, true);
+	for (int s = 0; s < 90; s++) world->stepSimulation(btScalar(kDt), 0, btScalar(kDt));
+	EXPECT_LT((hanging->m_nodes[node].m_x - anchor).length(), btScalar(3e-4));
+	const double penalty = deformableSolver->getSystem().m_attachments[attachment].m_penalty;
+	EXPECT_GT(penalty, 1e4);
+
+	// a body that enters the world rebuilds the system; the joint must not notice
+	btSoftBody* other = btVariationalHelpers::createTetGrid(world->getWorldInfo(), btVector3(3, 2, 0), btVector3(0.1, 0.1, 0.1), 1, 1, 1, 1000);
+	world->addSoftBody(other);
+	deformableSolver->setMaterial(other, &material);
+	for (int s = 0; s < 3; s++)
+	{
+		world->stepSimulation(btScalar(kDt), 0, btScalar(kDt));
+		EXPECT_LT((hanging->m_nodes[node].m_x - anchor).length(), btScalar(3e-4));
+	}
+	EXPECT_EQ(2, deformableSolver->getSystem().m_bodies.size());
+	EXPECT_GE(deformableSolver->getSystem().m_attachments[attachment].m_penalty, 0.9 * penalty);
+
+	// released, it falls
+	deformableSolver->setAttachmentEnabled(attachment, false);
+	for (int s = 0; s < 30; s++) world->stepSimulation(btScalar(kDt), 0, btScalar(kDt));
+	EXPECT_LT(hanging->m_nodes[node].m_x.y(), anchor.y() - btScalar(1.0));
+
+	world->removeSoftBody(hanging);
+	world->removeSoftBody(other);
+	delete hanging;
+	delete other;
 	delete world;
 	delete solver;
 	delete deformableSolver;

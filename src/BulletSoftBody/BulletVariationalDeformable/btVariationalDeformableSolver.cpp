@@ -70,6 +70,8 @@ int btVariationalDeformableSolver::addAttachment(btSoftBody* psb, int node, cons
 	a.m_target = target;
 	a.m_stiffness = stiffness;
 	a.m_hard = hard;
+	a.m_enabled = true;
+	a.m_penalty = 0.0;
 	m_attachmentSettings.push_back(a);
 	m_dirty = true;
 	return m_attachmentSettings.size() - 1;
@@ -85,6 +87,8 @@ int btVariationalDeformableSolver::addAttachment(btSoftBody* psbA, int nodeA, bt
 	a.m_target.setZero();
 	a.m_stiffness = stiffness;
 	a.m_hard = hard;
+	a.m_enabled = true;
+	a.m_penalty = 0.0;
 	m_attachmentSettings.push_back(a);
 	m_dirty = true;
 	return m_attachmentSettings.size() - 1;
@@ -94,6 +98,15 @@ void btVariationalDeformableSolver::setAttachmentTarget(int attachment, const bt
 {
 	m_attachmentSettings[attachment].m_target = target;
 	if (!m_dirty && attachment < m_system.m_attachments.size()) m_system.m_attachments[attachment].m_target = btVec3d(target);
+}
+
+void btVariationalDeformableSolver::setAttachmentEnabled(int attachment, bool enabled)
+{
+	AttachmentSettings& settings = m_attachmentSettings[attachment];
+	if (settings.m_enabled == enabled) return;
+	settings.m_enabled = enabled;
+	// takes effect with the rebuild before the next step, which leaves the other attachments as they are
+	m_dirty = true;
 }
 
 void btVariationalDeformableSolver::removeAllAttachments()
@@ -114,6 +127,13 @@ void btVariationalDeformableSolver::rebuildIfNeeded()
 			rebuild = true;
 	}
 	if (!rebuild) return;
+	// A rebuild (a body was added or removed, an attachment was added) must not disturb the joints
+	// that stay: keep the dual variables and penalties of the hard attachments.
+	for (int a = 0; a < m_attachmentSettings.size() && a < m_firstPickingAttachment && a < m_system.m_attachments.size(); a++)
+	{
+		m_attachmentSettings[a].m_lambda = m_system.m_attachments[a].m_lambda;
+		m_attachmentSettings[a].m_penalty = m_system.m_attachments[a].m_hard ? m_system.m_attachments[a].m_penalty : 0.0;
+	}
 	m_system.clear();
 	for (int i = 0; i < m_softBodies.size(); i++)
 	{
@@ -142,13 +162,20 @@ void btVariationalDeformableSolver::rebuildIfNeeded()
 		at.m_stiffness = src.m_stiffness;
 		at.m_hard = src.m_hard;
 		at.m_penalty = src.m_stiffness;
-		if (at.m_nodeA < 0 || (src.m_psbB && at.m_nodeB < 0))
+		if (src.m_hard && src.m_penalty > 0.0)
 		{
-			// refers to a body that is not in the world (any more); keep the slot so indices stay valid
+			at.m_lambda = src.m_lambda;
+			at.m_penalty = src.m_penalty;
+		}
+		if (at.m_nodeA < 0 || (src.m_psbB && at.m_nodeB < 0) || !src.m_enabled)
+		{
+			// switched off, or refers to a body that is not in the world (at the moment); keep the
+			// slot so indices stay valid
 			at.m_nodeA = 0;
 			at.m_nodeB = -1;
 			at.m_stiffness = at.m_penalty = 0.0;
 			at.m_hard = false;
+			at.m_lambda.setZero();
 		}
 		m_system.m_attachments.push_back(at);
 	}

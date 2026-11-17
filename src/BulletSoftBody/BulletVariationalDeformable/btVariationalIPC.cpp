@@ -37,6 +37,12 @@ btVariationalIPC::btVariationalIPC()
 {
 }
 
+void btVariationalIPC::excludePair(const btSoftBody* a, const btSoftBody* b)
+{
+	m_excludedPairs.push_back(a);
+	m_excludedPairs.push_back(b);
+}
+
 void btVariationalIPC::setCollisionGroup(const btSoftBody* psb, int group)
 {
 	for (int i = 0; i < m_groupBodies.size(); i++)
@@ -479,6 +485,34 @@ void btVariationalIPC::beginStep(const btVariationalSystem& system)
 	for (int b = 0; b < system.m_bodies.size(); b++)
 		for (int i = 0; i < m_groupBodies.size(); i++)
 			if (m_groupBodies[i] == system.m_bodies[b].m_psb) m_bodyGroup[b] = m_groupIds[i];
+	// excluded pairs as a list of partners per body
+	m_excludedStart.resize(0);
+	m_excludedPartners.resize(0);
+	if (m_excludedPairs.size() > 0)
+	{
+		const int numBodies = system.m_bodies.size();
+		btAlignedObjectArray<int> a, b;
+		for (int k = 0; k + 1 < m_excludedPairs.size(); k += 2)
+		{
+			const int ia = system.findBody(m_excludedPairs[k]), ib = system.findBody(m_excludedPairs[k + 1]);
+			if (ia < 0 || ib < 0) continue;  // (not in the world at the moment)
+			a.push_back(ia);
+			b.push_back(ib);
+			if (ia != ib)
+			{
+				a.push_back(ib);
+				b.push_back(ia);
+			}
+		}
+		m_excludedStart.resize(numBodies + 1, 0);
+		for (int k = 0; k < a.size(); k++) m_excludedStart[a[k] + 1]++;
+		for (int i = 0; i < numBodies; i++) m_excludedStart[i + 1] += m_excludedStart[i];
+		m_excludedPartners.resize(a.size());
+		btAlignedObjectArray<int> fill;
+		fill.resize(numBodies);
+		for (int i = 0; i < numBodies; i++) fill[i] = m_excludedStart[i];
+		for (int k = 0; k < a.size(); k++) m_excludedPartners[fill[a[k]]++] = b[k];
+	}
 	buildCandidates(x, 0, 0.5 * m_dhatActive);
 	{
 		double gap = 0;
@@ -487,7 +521,7 @@ void btVariationalIPC::beginStep(const btVariationalSystem& system)
 		if (!m_initialStateValid && !m_warned)
 		{
 			printf("btVariationalIPC: the step starts from touching or intersecting surfaces; the barrier cannot recover from that. "
-				   "Separate the bodies, or put jointed bodies into one collision group (setCollisionGroup).\n");
+				   "Separate the bodies, or take jointed bodies out of each other's contact (setCollisionGroup, excludePair).\n");
 			m_warned = true;
 		}
 	}
